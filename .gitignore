@@ -1,0 +1,22 @@
+# SQLite database + WAL sidecars
+backend/processx.db
+backend/processx.db-wal
+backend/processx.db-shm
+processx.db*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Trained model artifacts
+backend/models/artifacts/

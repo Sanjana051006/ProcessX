@@ -1,0 +1,13 @@
+# ProcessX backend. Python 3.11.
+#   python -m venv .venv
+#   .venv/Scripts/pip install -r requirements.txt      (Windows)
+#   .venv/bin/pip install -r requirements.txt          (macOS / Linux)
+#
+# Pinned deliberately: pandas 3.x and numpy 2.x are recent majors, and the
+# demo is required to be reproducible on seed 42 across machines.
+fastapi==0.141.1
+uvicorn==0.52.4
+pandas==3.0.5
+numpy==2.4.6
+scikit-learn==1.9.0
+joblib==1.5.3
