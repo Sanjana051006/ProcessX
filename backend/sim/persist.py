@@ -107,6 +107,55 @@ def write_run(result, run_id, label=None, parent_run_id=None, ground_truth=None,
     return kpis
 
 
+def write_investigation(conclusion, nodes, conn=None):
+    """P4.5 -- persist an investigation and every node, each with its own
+    `reasoning` string. That string is the explainability requirement: a node
+    records why the agent chose that probe, what it found, and what it changed."""
+    conn = conn or db.get_conn()
+    inv_id = conclusion["inv_id"]
+    node_rows = [
+        (
+            n.node_id, inv_id, n.parent_node_id, n.depth, n.seq, n.probe_type,
+            n.target, float(n.selection_score), float(n.impact), float(n.uncertainty),
+            json.dumps(n.evidence, default=float), json.dumps(n.hypotheses, default=float),
+            n.reasoning,
+        )
+        for n in nodes
+    ]
+    conn.execute("BEGIN")
+    try:
+        conn.execute("DELETE FROM investigation_nodes WHERE inv_id = ?", (inv_id,))
+        conn.execute("DELETE FROM investigations WHERE inv_id = ?", (inv_id,))
+        conn.execute(
+            "INSERT INTO investigations (inv_id, run_id, started_at, status,"
+            " concluded_stage, concluded_cause, confidence) VALUES (?,?,?,?,?,?,?)",
+            (inv_id, conclusion["run_id"], conclusion["started_at"], conclusion["status"],
+             conclusion["concluded_stage"], conclusion["concluded_cause"],
+             conclusion["confidence"]))
+        conn.executemany(
+            "INSERT INTO investigation_nodes (node_id, inv_id, parent_node_id, depth,"
+            " seq, probe_type, target, selection_score, impact, uncertainty,"
+            " evidence_json, hypotheses_json, reasoning) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            node_rows)
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return inv_id
+
+
+def load_investigation(inv_id, conn=None):
+    row = (conn or db.get_conn()).execute(
+        "SELECT * FROM investigations WHERE inv_id = ?", (inv_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def load_nodes(inv_id, conn=None):
+    return pd.read_sql(
+        "SELECT * FROM investigation_nodes WHERE inv_id = ? ORDER BY seq",
+        conn or db.get_conn(), params=(inv_id,))
+
+
 def write_interventions(inv_id, candidates, conn=None):
     """P3.7 -- persist an investigation's scored candidates.
 

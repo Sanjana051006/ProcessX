@@ -141,9 +141,19 @@ test suite. Run them from the repository root.
 | `backend.scripts.p1_verify` | Simulator, reproducibility, **the cascade** | ~6 s |
 | `backend.scripts.p2_verify` | M1–M4, the four metric cards, ground-truth separation | ~90 s |
 | `backend.scripts.p3_verify` | M5 counterfactuals, M6 ROI, **the ROI ordering** | ~25 s |
+| `backend.scripts.p4_verify` | The agent loop, **both conclusions with no code change** | ~75 s |
+| `backend.scripts.p5_verify` | All 11 endpoints over HTTP, writer discipline | ~60 s |
 
-`p1_verify` and `p3_verify` call `db.reset()`, so they wipe the database.
-Re-run `bootstrap` afterwards to get back to the demo start state.
+`p1_verify`, `p3_verify` and `p4_verify` call `db.reset()`, so they wipe the
+database. `p5_verify` needs the backend already running on :8000 and drives it
+through the full demo. Re-run `bootstrap` afterwards to get back to the demo
+start state.
+
+To watch the whole demo over HTTP instead:
+
+```bash
+bash backend/scripts/demo_curl.sh
+```
 
 ---
 
@@ -159,6 +169,19 @@ backend/
     scenarios.py         healthy baseline, bottleneck-A injection
     costs.py             derived time and cost columns
     persist.py           bulk writes -- the only module that writes
+  baseline.py            the fixed-rule comparator the agent has to beat
+  jsonsafe.py            inf/nan -> null, so real ratios can be serialised
+  api/
+    deps.py              shared app state: models, current run, run cache
+    routes_runs.py       reset, inject
+    routes_read.py       stages/health (incl. map), ranking, model metrics
+    routes_agent.py      investigate, investigation, tree, interventions
+    routes_actions.py    apply, baseline/compare
+  agent/
+    state.py             ProcessState -- health, evidence, hypotheses, budget
+    probes.py            stage probe, factor probe, expected information gain
+    policy.py            probe selection score and the stopping rule
+    controller.py        the investigate loop and the re-planning path
   models/
     features.py          per case-stage and per stage-hour feature builders
     m1_process_time.py   GradientBoostingRegressor + residuals

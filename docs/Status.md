@@ -225,8 +225,8 @@ Buffer at a 10-hour window: **2h 25m.** At an 8-hour window: 25m.
 | P1 | Simulator + data foundation | 1:20 | done |
 | P2 | Intelligence components M1–M4 | 1:40 | done |
 | P3 | Impact simulation M5 + ROI M6 | 0:50 | done |
-| P4 | State engine + agent controller | 1:10 | todo |
-| P5 | API layer | 0:25 | todo |
+| P4 | State engine + agent controller | 1:10 | done |
+| P5 | API layer | 0:25 | done |
 | P6 | Dashboard | 1:15 | todo |
 | P7 | Baseline + verification | 0:25 | todo |
 | P8 | Demo rehearsal | 0:30 | todo |
@@ -353,16 +353,32 @@ ROI ranking in the bottleneck-A world (holding cost ₹12/case-hour, unchanged):
 
 | ID | Step | Status | Notes |
 |----|------|--------|-------|
-| P4.1 | `agent/state.py` — `ProcessState` (Architecture §5) | todo | |
-| P4.2 | `agent/probes.py` — stage probe + factor probe over the 4 locked dimensions | todo | |
-| P4.3 | `agent/policy.py` — selection score + convergence rule per §A8 | todo | |
-| P4.4 | `agent/controller.py` — the investigate loop, synchronous | todo | |
-| P4.5 | Persist each node with its `reasoning` string | todo | |
-| P4.6 | Candidate proposal → M5 → M6 selection at loop end | todo | |
-| P4.7 | Re-planning: `apply()` → child run → refresh models → re-investigate, same code path | todo | |
-| P4.8 | **Verify:** concludes `order_validation`/`staffing_shortage` on A, then `pick_pack`/`capacity_saturation` after the fix — no code change between | todo | |
+| P4.1 | `agent/state.py` — `ProcessState` (Architecture §5) | done | [backend/agent/state.py](../backend/agent/state.py). All §5 fields plus the loop's bookkeeping. **`top_hypothesis` ranks by M2 impact, not probability** — once more than one stage has been probed the agent holds two confident diagnoses at p = 1.00, and the one worth acting on is the one carrying the delay. |
+| P4.2 | `agent/probes.py` — stage probe + factor probe over the 4 locked dimensions | done | [backend/agent/probes.py](../backend/agent/probes.py). All four §A8 dimensions. Factor evidence reports the smallest group set carrying most of the delay against its share of *volume* — the lift is the finding. Adds `factor_information()`, which scores a dimension **before** probing it. |
+| P4.3 | `agent/policy.py` — selection score + convergence rule per §A8 | done | [backend/agent/policy.py](../backend/agent/policy.py). Resolves the §D entropy problem **without a constant floor**: uncertainty is the agent's own, so an unprobed stage carries 1.0 and the score reduces to impact, then collapses to M4's real entropy once probed. Factor uncertainty = delay concentration along that dimension. Stopping floor is a fraction of the *leading* stage's impact — scoring each candidate against itself would clear every stage probe by construction. |
+| P4.4 | `agent/controller.py` — the investigate loop, synchronous | done | [backend/agent/controller.py](../backend/agent/controller.py). Architecture §6 loop verbatim, synchronous per §A8. On bottleneck A it spends **5 of 6 probes** and stops on its own with a stated reason. |
+| P4.5 | Persist each node with its `reasoning` string | done | `persist.write_investigation()`, one transaction. Every node records **why the probe was chosen, what it found, and what changed** — e.g. *"Selected weekday at order_validation: the delay is more concentrated along this dimension than any other left (information 0.44) … Sun and Sat carry 83.6% of the queue wait on 36.9% of the volume (×2.3)."* |
+| P4.6 | Candidate proposal → M5 → M6 selection at loop end | done | Catalogue restricted to the concluded stage, each simulated by M5 and priced by M6, then greedy under the *remaining* budget. On A it picks `weekend_shift_reallocation` + `auto_approve_low_risk` (₹65k) and rejects `add_reviewers_2`. |
+| P4.7 | Re-planning: `apply()` → child run → refresh models → re-investigate, same code path | done | `apply_intervention()` + `replan()`, ~14 s end to end. **"Refresh" means refit M1 and re-score M2/M3/M4**: M3 must keep the healthy baseline as its reference (refitting it on the world being judged destroys the comparison) and M4's corpus is independent of any demo run by design. The refit is stateful — re-scoring an older run afterwards needs its own refit, asserted explicitly in the suite. |
+| P4.8 | **Verify:** concludes `order_validation`/`staffing_shortage` on A, then `pick_pack`/`capacity_saturation` after the fix — no code change between | **done** | **Both, p = 1.00, no code change between.** A → `order_validation`/`staffing_shortage`; after applying its own recommendation → `pick_pack`/`capacity_saturation`, cycle 18.05 → 16.46 h. Confirmed the child run has **no `ground_truth` row at all** — B was never injected. Trees are byte-identical on re-run. |
 
-**Exit:** P4.8 passes from a script. Gate **H+5:30 — hard gate.**
+**Exit:** P4.8 passes from a script. Gate **H+5:30 — hard gate — met.** Runner: [backend/scripts/p4_verify.py](../backend/scripts/p4_verify.py), 34 checks, ~75 s.
+
+**The tree on bottleneck A** (5 probes, then it stopped on its own):
+
+```
+* order_validation          impact 0.43 x uncertainty 1.00  -> staffing_shortage p=1.00
+* pick_pack                 impact 0.25 x uncertainty 1.00  -> capacity_saturation p=1.00
+    - order_validation:weekday   impact 0.43 x information 0.44
+        Sun and Sat carry 83.6% of the queue wait on 36.9% of the volume (x2.3)
+* carrier_handover          impact 0.12                     -> normal p=1.00
+* last_mile                 impact 0.11                     -> normal p=1.00
+stop: best remaining probe scores 0.098 against a floor of 0.106
+```
+
+Two things fell out of the policy rather than being designed in, and both help the demo. The agent **checks `last_mile` and clears it as normal** — the stage the fixed-rule baseline picks — which sets up P7.2 from inside the agent's own reasoning. And it **spots `pick_pack` as already saturated while still ranking it second**, so the cascade in beat 4 is a promotion the audience watched it consider, not a rabbit from a hat.
+
+**After applying its own recommendation**, the same code concludes `pick_pack`/`capacity_saturation` at p = 1.00 in 3 probes, and recommends `batch_route_optimisation` (₹60k, ROI 1.08) — an action it had *rejected* an hour earlier at ROI −0.14.
 
 ---
 
@@ -370,13 +386,33 @@ ROI ranking in the bottleneck-A world (holding cost ₹12/case-hour, unchanged):
 
 | ID | Step | Status | Notes |
 |----|------|--------|-------|
-| P5.1 | Run endpoints: `reset`, `inject/{scenario}` | todo | |
-| P5.2 | Read endpoints: `stages/health` (incl. map), `bottlenecks/ranking`, `models/metrics` | todo | |
-| P5.3 | Agent endpoints: `investigate`, `{inv_id}`, `{inv_id}/tree`, `{inv_id}/interventions` | todo | |
-| P5.4 | Action endpoints: `interventions/{int_id}/apply`, `baseline/compare` | todo | |
-| P5.5 | Verify the whole demo runs from curl | todo | |
+| P5.1 | Run endpoints: `reset`, `inject/{scenario}` | done | [backend/api/routes_runs.py](../backend/api/routes_runs.py). **`reset` reloads the models rather than refitting them** — the baseline world is a pure function of the master seed, so the persisted models are still correct, and a 40 s fit inside a demo beat is not acceptable (`?retrain=true` forces it). `inject/bottleneck_b` returns 404 explaining that B is never injected. |
+| P5.2 | Read endpoints: `stages/health` (incl. map), `bottlenecks/ranking`, `models/metrics` | done | [backend/api/routes_read.py](../backend/api/routes_read.py). Map data merged into `stages/health` per §A9. **Health colours are measured against the run's own parent, not the healthy baseline** — see §D; against a healthy reference the cascade renders green and beat 4 is invisible. Writer discipline verified: zero row-count change across every GET. |
+| P5.3 | Agent endpoints: `investigate`, `{inv_id}`, `{inv_id}/tree`, `{inv_id}/interventions` | done | [backend/api/routes_agent.py](../backend/api/routes_agent.py). `investigate` is synchronous and returns the finished tree (§A8, no polling). The persisted tree round-trips identically to the POST response. |
+| P5.4 | Action endpoints: `interventions/{int_id}/apply`, `baseline/compare` | done | [backend/api/routes_actions.py](../backend/api/routes_actions.py). `apply` deliberately does **not** re-investigate — beat 4 is worth two moves, the numbers changing and then the agent landing somewhere new. `?apply_selected=true` applies the whole M6 portfolio. `baseline/compare` only *reads*; the fixed-rule decision is computed and written on the `investigate` write path, which is what keeps §A3 intact for a GET. |
+| P5.5 | Verify the whole demo runs from curl | done | [backend/scripts/demo_curl.sh](../backend/scripts/demo_curl.sh) walks all five beats over curl with no jq dependency. Assertion suite: [backend/scripts/p5_verify.py](../backend/scripts/p5_verify.py), 43 checks. |
 
-**Exit:** P5.5 passes. Gate **H+6:00**.
+**Exit:** P5.5 passes. Gate **H+6:00** — **met.** All 11 §A9 endpoints present, no unplanned ones (plus `/api/health` from P0 and a `/api/runs` listing).
+
+**The whole demo, from curl:**
+
+```
+beat 1  reset            -> baseline, cycle 16.59 h
+        inject A         -> bottleneck_a, cycle 18.05 h, SLA breach 0.77%
+        stages/health    -> order_validation RED (12.75x), M3 flags 308 windows
+        ranking          -> order_validation 42.6% | last_mile rank 4
+beat 2  investigate      -> order_validation / staffing_shortage p=1.00, 5 probes
+                            Sun and Sat carry 83.6% of the wait on 36.9% of volume
+beat 3  interventions    -> Rs25k ROI 5.46 [x] | Rs40k ROI 3.42 [x] | Rs180k ROI -0.06 [ ]
+beat 4  apply            -> 18.05 h -> 16.46 h for Rs 65k
+        stages/health    -> order_validation GREEN, pick_pack RED (2.27x)
+        investigate      -> pick_pack / capacity_saturation p=1.00
+beat 5  baseline/compare -> agent Rs 273,070 net | fixed rule picks last_mile, no lever
+```
+
+**The baseline comparison is not a straw man.** Two variants are scored: the rule as written (`strict`) picks `last_mile`, where §A6 leaves no action to buy, so it delivers ₹0; the charitable repair (`fallthrough`) skips to the longest stage that *does* have a lever and buys `weekend_shift_reallocation` for ₹136,458 net. The agent returns **₹273,070** — it beats the stronger opponent by 2×, not just the weak one.
+
+**Two API-shaped problems found and fixed.** Non-finite floats (a delay group with no volume gives `inf`) are valid Python JSON but not valid JSON — Starlette 500s on them, so [backend/jsonsafe.py](../backend/jsonsafe.py) maps them to `null` at both the source and the boundary. And the health-colour reference had to move from the healthy baseline to the parent run, or beat 4's cascade shows up green.
 
 ---
 
@@ -406,7 +442,7 @@ Built in demo order. Any panel that stalls ships as a plain `<table>`. CSS bars 
 
 | ID | Step | Status | Notes |
 |----|------|--------|-------|
-| P7.1 | `baseline.py` — fixed rule: highest mean stage duration → cheapest action there | todo | |
+| P7.1 | `baseline.py` — fixed rule: highest mean stage duration → cheapest action there | done | Landed early: [backend/baseline.py](../backend/baseline.py) is a dependency of the `baseline/compare` endpoint, so P5.4 could not be finished without it. Computes **two variants** — `strict` (the rule as written) and `fallthrough` (skip stages with no available action) — so the comparison cannot be dismissed as rigged by the catalogue's shape. P7.2–P7.4 still to do. |
 | P7.2 | Confirm baseline picks `last_mile` while the agent picks `order_validation` | todo | |
 | P7.3 | Both ROIs → `baseline_decisions` → comparison panel | todo | |
 | P7.4 | Full end-to-end from a clean DB, twice, seed 42 — identical result | todo | |
@@ -457,6 +493,13 @@ Built in demo order. Any panel that stalls ships as a plain `<table>`. CSS bars 
 | 2026-08-28 | `holding_cost_per_hour` **kept at 12** | §A7 authorises changing it only if the ROI ordering fails. The ordering holds (3.42 vs −0.06), so the licence does not apply and the constant stays frozen |
 | 2026-08-28 | M5 bundles are simulated, never summed | Two capacity changes on one queue interact; the naive sum overstates the chosen pair by 89% (3.21 h vs a simulated 1.70 h) |
 | 2026-08-28 | M6 excludes ROI-negative actions from greedy selection | Leftover budget is not a reason to buy something that costs more than it saves. Without this the ₹250k cap would absorb `add_reviewers_2` after the two cheap fixes |
+| 2026-08-28 | Agent concludes on the highest-**impact** confident stage, not the highest-probability one | With more than one stage probed the agent holds two diagnoses at p = 1.00 (order_validation and pick_pack are both real). Ranking on probability made the conclusion a coin-flip between them; ranking on M2 impact picks the one carrying the delay |
+| 2026-08-28 | Convergence also requires no informative probe left, not just p ≥ 0.65 | §A8's probability bar alone stops the agent after one probe — with a cause but no account of when it bites, which is exactly what the intervention choice depends on (a weekend reallocation only makes sense for a weekend-concentrated fault). The extra condition is information-driven, not a fixed probe count |
+| 2026-08-28 | Health colours measure a run against its **parent**, not the healthy baseline | Direct consequence of the P1.10 finding in §D. Post-fix `pick_pack` is indistinguishable from healthy `pick_pack`, so a healthy reference renders the cascade green and beat 4 — the winning moment — becomes invisible. Against the world the operator was just looking at, `pick_pack` turns red exactly when it becomes the constraint |
+| 2026-08-28 | `POST /api/runs/reset` reloads models instead of refitting | The baseline world is a pure function of the master seed, so the persisted models are still the right ones. A 40 s fit inside a demo beat is not acceptable; `?retrain=true` is there for when it is genuinely wanted |
+| 2026-08-28 | The fixed-rule baseline is scored in two variants | `strict` follows P7.1 literally and picks `last_mile`, which §A6 gives no action for. Reporting only that invites the charge that the catalogue was shaped to make the agent win, so `fallthrough` — the strongest honest version of the rule — is scored alongside it |
+| 2026-08-28 | Non-finite floats are nulled at the API boundary | `inf`/`nan` from real ratios (a group with delay but no volume) serialise fine through Python's json but are not valid JSON; Starlette returns a 500. `backend/jsonsafe.py` maps them to `null` |
+| 2026-08-28 | Model 'refresh' on apply = refit M1, re-score M2/M3/M4 | Architecture §6.1 says retrain M1–M4 on the new log, but M3's reference set *must* stay the healthy baseline (refitting it on the world being judged destroys the comparison) and M4's corpus is independent of any demo run by design (§A5) |
 
 ---
 
@@ -470,11 +513,15 @@ None. All decisions frozen as of 2026-08-28. Anything new goes in §C with a rea
 
 **Resolved at P2.9.** The M3 constraint above was implemented as stated: 2,606 healthy weekday windows, detection at 2.0 h, plus a direction gate so an improvement is not mistaken for a fault.
 
+**Resolved at P4.3.** The entropy-collapse constraint below was fixed as prescribed — uncertainty is read as the agent's own, unprobed candidates carry 1.0, and no constant floor was used. Verified: unprobed stages score exactly their impact, the first pick is the top-impact stage, and no factor probe is offered before its stage has been probed.
+
 **Open constraint for P4.3 (agent policy), found at P2.15.** §A8 sets the probe-selection score to `m2_impact_share × normalised_entropy(m4_proba)`. M4 is confident enough on this simulator that entropy is **0.000** at both demo stages — which would zero the score for *every* candidate and leave the agent choosing arbitrarily. The fix is to read the term the way it is meant: entropy is the agent's uncertainty about a stage it **has not yet probed**, so an unprobed candidate carries maximum entropy and the score reduces to impact, while probing collapses it. Do not paper over this with a constant floor.
 
 **Caveat to state out loud in P8.** M4 scoring 1.00 reflects a simulator in which the two fault signatures are genuinely disjoint — a shortage queues up while capacity sits idle, saturation queues up with capacity flat out. It is not evidence of real-world difficulty. The honest claim is that the classifier learned the mechanism rather than the stage: it was never shown either demo scenario, and it gets 4/4 held-out stage/severity combinations right (one on thin evidence, p = 0.37 over 4 windows).
 
 **§A7's indicative ROI values are not simultaneously reachable — resolved at P3.6.** §A7 predicts `auto_approve_low_risk` ≈ 7.5 and `add_reviewers_2` ≈ 1.3. With the measured deltas (1.682 h and 1.598 h) the holding cost that yields 7.5 for the first is ₹24.1/case-hour, while the one that yields 1.3 for the second is ₹30.9 — no single value satisfies both, and at ₹24.1 the second lands at 0.81, not 1.3. The pair was written before the simulator existed and assumed the two actions were far apart on time saved; in fact both essentially fully relieve bottleneck A. **The frozen requirement is the ordering, and the ordering holds at the locked ₹12.** Two related notes for the demo script: §A7's parenthetical 'despite saving less absolute time' no longer describes the simulator — `auto_approve_low_risk` saves the *most* time of the three *and* costs a quarter of `add_reviewers_2`; and at ₹12 the ₹180k option comes out mildly negative, which is a sharper line than '1.3' anyway.
+
+**Confirmed empirically at P4.3.** Measured information gain at `order_validation`: weekday **0.445**, is_new_customer 0.138, resource_id 0.048, order_value_band **0.000**. The agent picks weekday unprompted and never spends a probe on order value. The corrected beat-2 line, in the agent's own words: *"Sun and Sat carry 83.6% of the queue wait on 36.9% of the volume (×2.3), mean wait 7.01 h."*
 
 **PRD beat 2's wording needs correcting before P8.** The beat quotes the agent concluding "order_validation — staffing shortage, weekends, **orders > ₹15k**, p≈0.7". There is no value concentration to find: the legacy review rule is deliberately uncorrelated with order value (that is *why* auto-approving low-risk orders removes 61% of the volume), and the measured `concentration_by_value_band` is 0.26 against 0.25 for a uniform split. The real, defensible finding is the weekday one — weekend review wait 6.09 h vs 0.70 h on weekdays. P4.2's factor probe will surface exactly that, and the beat should say `weekday=Sat/Sun`, not an order-value band.
 
