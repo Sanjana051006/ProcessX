@@ -1,6 +1,6 @@
-"""P5.3 -- agent endpoints.
+"""agent endpoints.
 
-`investigate` is synchronous (§A8): it runs the whole loop and returns the
+`investigate` is synchronous: it runs the whole loop and returns the
 finished tree. The frontend reveals nodes client-side at 400 ms, which looks
 identical to live growth with no polling and no concurrent writes.
 """
@@ -27,7 +27,7 @@ class InvestigateRequest(BaseModel):
 def _record_baseline(result, run_id, conn=None):
     """Score the fixed rule on the same world, for /api/baseline/compare.
 
-    Done here rather than in the GET because §A3 forbids read endpoints from
+    Done here rather than in the GET because read endpoints must not
     writing, and this is already a write path.
     """
     decision = baseline_mod.evaluate(result)

@@ -3,17 +3,25 @@
 Run from the repository root:
     .venv/Scripts/uvicorn backend.main:app --reload --port 8000
 
-The 11 endpoints are frozen in Status §A9. Writer discipline (§A3): only
+Writer discipline: only
 reset / inject / investigate / apply write; every read endpoint is read-only.
 """
 
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend import db
-from backend.api import routes_actions, routes_agent, routes_read, routes_runs
+from backend import analytics, db
+from backend.api import (
+    routes_actions,
+    routes_agent,
+    routes_chat,
+    routes_dashboard,
+    routes_read,
+    routes_runs,
+)
 from backend.api.deps import get_state
 
 
@@ -22,11 +30,25 @@ async def lifespan(app: FastAPI):
     db.init_schema()
     # Load the persisted models once at startup. Absent is not fatal -- the
     # endpoints that need them say so with a 503 naming the bootstrap command.
-    get_state().load_models(required=False)
+    state = get_state()
+    state.load_models(required=False)
+    # Warm the activity table for the current world off the request path. It
+    # costs an M1 residual pass over the whole event log, and every dashboard
+    # panel wants it -- paying for it here means the first page load is instant
+    # rather than three seconds. Failure is not fatal: a database with no runs
+    # yet, or no trained models, simply skips it.
+    threading.Thread(target=_warm, args=(state,), daemon=True).start()
     yield
 
 
-app = FastAPI(title="ProcessX", version="0.5.0", lifespan=lifespan)
+def _warm(state):
+    try:
+        analytics.stage_table(state)
+    except Exception:
+        pass
+
+
+app = FastAPI(title="ProcessX", version="0.6.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +62,8 @@ app.include_router(routes_runs.router)
 app.include_router(routes_read.router)
 app.include_router(routes_agent.router)
 app.include_router(routes_actions.router)
+app.include_router(routes_dashboard.router)
+app.include_router(routes_chat.router)
 
 
 @app.get("/api/health")

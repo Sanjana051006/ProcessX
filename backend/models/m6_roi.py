@@ -1,13 +1,14 @@
-"""M6 -- benefit model and greedy budget selection (§A6, §A7, §A8).
+"""M6 -- benefit model and greedy budget selection.
 
     benefit_30d = delta_cycle_hours x cases_per_day x horizon_days
                   x holding_cost_per_hour
                 + sla_penalty_avoided
     roi         = (benefit_30d - cost_30d) / cost_30d
 
-Selection is greedy ROI-per-rupee under the budget cap. No OR-Tools (§C) --
-with one budget and five candidates, greedy is optimal in practice and can be
-explained in a sentence, which matters more here than the last 1%.
+Selection is greedy ROI-per-rupee under the budget cap. No OR-Tools -- with a
+single budget and a handful of candidates per activity, greedy is optimal in
+practice and can be explained in a sentence, which matters more here than the
+last 1%.
 """
 
 from backend.sim import config as C
@@ -53,7 +54,7 @@ def score_all(impacts):
 
 
 def select_greedy(candidates, budget=C.BUDGET_CAP):
-    """P3.5 -- take the best ROI-per-rupee that still fits, until nothing does.
+    """take the best ROI-per-rupee that still fits, until nothing does.
 
     Only ROI-positive actions are eligible: an action that costs more than it
     saves does not become worth doing just because there is budget left.

@@ -1,17 +1,16 @@
-"""M4 -- delay-cause prediction (§A5).
+"""M4 -- delay-cause prediction.
 
-GradientBoostingClassifier(n_estimators=150, max_depth=3, random_state=42) over
+GradientBoostingClassifier(n_estimators=100, max_depth=3, random_state=42) over
 3 classes: staffing_shortage | capacity_saturation | normal.
 
 Where the labels come from
 --------------------------
-§A5 requires that ground truth never enters a feature set and is read only when
-scoring. So M4 is NOT trained on the demo runs. It is trained on a separate
-corpus of simulated worlds, each with a fault this module injected itself and
-therefore labels by construction, on different seeds and different stages. The
-demo scenarios (order_validation 3->1 at the weekend, and the pick_pack cascade)
-are held out of that corpus entirely -- their `ground_truth` rows are only ever
-used to score the prediction.
+Ground truth never enters a feature set and is read only when scoring, so M4 is
+NOT trained on the demo runs. It is trained on a separate corpus of simulated
+worlds, each with a fault this module injected itself and therefore labels by
+construction, on different seeds and different stages. The demo scenario
+(evidence_review at 4 reviewers) is held out of that corpus entirely -- its
+`ground_truth` row is only ever used to score the prediction.
 
 The physical distinction the classifier learns
 ----------------------------------------------
@@ -21,8 +20,9 @@ The physical distinction the classifier learns
 * capacity_saturation -- the full roster is working and demand still exceeds it.
   Signature: resource_deficit ~ 0, utilisation ~ 1, moderate ratio.
 
-That contrast is why `wait_to_service_ratio` must not be dropped (§A5), and it
-is what lets one classifier answer both demo scenarios with no code change.
+That contrast is why `wait_to_service_ratio` must not be dropped, and it is
+what lets one classifier answer a fault at any of the 24 activities with no
+code change.
 """
 
 import numpy as np
@@ -44,44 +44,45 @@ STRAIN_RATIO = features.STRAIN_RATIO
 PEAK_QUANTILE = 0.20
 PEAK_MIN_WINDOWS = 10
 
-TRAIN_HORIZON_DAYS = 14
+# How much sustained strain a stage must show before a cause is named at all.
+# The classifier only ever answers "which fault is this", never "is this a
+# fault", so without a floor the worst few hours of a healthy stage are enough
+# to produce capacity_saturation at p = 1.00. A week of ordinary operation
+# throws off a handful of strained hours; a real constraint strains an eighth
+# of its active hours or more.
+MIN_STRAINED_WINDOWS = 12
+MIN_STRAINED_SHARE = 0.12
+
+TRAIN_HORIZON_DAYS = 7
 
 # Every training world starts COMFORTABLE -- each stage given ~1.6x its demo
-# roster -- and then one stage is broken. This matters more than it looks: the
-# demo's own base config leaves pick_pack saturated at the weekend by design
-# (that is bottleneck B, latent). Generating "normal" training runs from it
-# would label genuine saturation as normal and teach M4 exactly the wrong
-# thing -- which is what made the first attempt call the cascade "normal" with
-# p = 1.00.
+# roster -- and then one stage is broken. Generating "normal" runs from the demo
+# base config instead would risk labelling a stage that is merely heavily loaded
+# as normal, and teach M4 that saturation is fine.
 _HEADROOM = 1.6
 
-# Faults to inject. The demo's own configurations -- order_validation weekend
-# 3 -> 1, and pick_pack saturating at its full roster of 5 -- are deliberately
-# absent, so both evaluation scenarios are genuinely held out.
+# Faults to inject. The demo's own configuration -- evidence_review held at 4
+# reviewers from hour 24 -- is deliberately absent, so the evaluation scenario
+# is genuinely held out.
 _STAFFING_RUNS = [
-    ("order_validation", 2, 301),
-    ("inventory_allocation", 3, 302),
+    ("document_verification", 3, 301),
+    ("order_validation", 2, 302),
     ("pick_pack", 3, 303),
-    ("carrier_handover", 1, 304),
-    ("inventory_allocation", 2, 305),
-    ("pick_pack", 4, 306),
+    ("evidence_review", 3, 304),
+    ("investigation", 3, 305),
+    ("exception_review", 3, 306),
 ]
 _SATURATION_RUNS = [
-    # Severe: the roster is far below demand.
-    ("order_validation", 2, 401),
-    ("inventory_allocation", 2, 402),
+    ("document_verification", 3, 401),
+    ("order_validation", 2, 402),
     ("pick_pack", 4, 403),
-    ("carrier_handover", 1, 404),
-    # Mild: the roster only tips over at the weekend peak. Without these the
-    # class is defined entirely by severe examples (wait/service ratio 20-100)
-    # and the demo cascade -- which sits at ratio ~8 -- falls in the gap
-    # between "saturated" and "normal" and is called normal.
-    ("inventory_allocation", 3, 405),
-    ("carrier_handover", 2, 406),
-    ("order_validation", 3, 407),
-    ("pick_pack", 6, 408),
+    ("evidence_review", 3, 404),
+    ("settlement_decision", 2, 405),
+    ("investigation", 3, 406),
+    ("exception_review", 3, 407),
+    ("manager_approval", 2, 408),
 ]
-_NORMAL_SEEDS = [501, 502, 503]
+_NORMAL_SEEDS = [501, 502]
 
 
 def _comfortable_config(label, horizon_days):
@@ -163,7 +164,7 @@ def build_training_corpus(horizon_days=TRAIN_HORIZON_DAYS, verbose=False):
 class M4:
     def __init__(self):
         self.model = GradientBoostingClassifier(
-            n_estimators=150, max_depth=3, random_state=42
+            n_estimators=100, max_depth=3, random_state=42
         )
         self.classes_ = None
         self.metrics = {}
@@ -191,7 +192,7 @@ class M4:
                             index=windows.index)
 
     def hypotheses(self, windows):
-        """P2.14 -- ranked causes for a set of windows (usually one stage).
+        """ranked causes for a set of windows (usually one stage).
 
         Probabilities are averaged over the stage's strained windows WEIGHTED BY
         THE DELAY IN EACH WINDOW, because the question is "what caused this
@@ -201,10 +202,13 @@ class M4:
         genuinely do look like saturation, since the full roster is flat out.
         """
         sub = windows[(windows["n_arrivals"] > 0)]
-        strained = sub[sub["wait_to_service_ratio"] >= STRAIN_RATIO]
-        used = strained if len(strained) >= 3 else sub
-        if used.empty:
+        if sub.empty:
             return [{"cause": "normal", "p": 1.0}], 0
+        strained = sub[sub["wait_to_service_ratio"] >= STRAIN_RATIO]
+        if (len(strained) < MIN_STRAINED_WINDOWS
+                or len(strained) / len(sub) < MIN_STRAINED_SHARE):
+            return [{"cause": "normal", "p": 1.0}], 0
+        used = strained
 
         # Diagnose at the PEAK of the problem, not across its aftermath. The
         # hours where the queue is deepest are where the fault is legible; the
@@ -271,7 +275,7 @@ class M4:
 
 def normalised_entropy(probs):
     """Uncertainty of a hypothesis set, scaled to [0, 1]. The agent multiplies
-    this by M2 impact to choose its next probe (§A8)."""
+    this by M2 impact to choose its next probe."""
     p = np.asarray([h["p"] for h in probs], dtype=float)
     p = p[p > 0]
     if len(p) <= 1:

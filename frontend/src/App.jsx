@@ -1,39 +1,65 @@
-import { useEffect, useState } from "react";
-import { getHealth } from "./api";
+import { useCallback, useEffect, useState } from "react";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import Navbar from "./components/Navbar.jsx";
+import Chat from "./pages/Chat.jsx";
+import Dashboard from "./pages/Dashboard.jsx";
+import Simulation from "./pages/Simulation.jsx";
+import { RunContext } from "./lib/runContext.js";
+import { getOverview, getRuns } from "./api.js";
 
+/**
+ * The one piece of state that is genuinely global: which simulated world every
+ * page is reading. Everything else a page needs, it fetches for itself — there
+ * are three pages and no shared mutations, so a store would be ceremony.
+ */
 export default function App() {
-  const [health, setHealth] = useState(null);
-  const [error, setError] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [runId, setRunId] = useState(null);
+  const [status, setStatus] = useState(null);
 
-  useEffect(() => {
-    getHealth().then(setHealth).catch((e) => setError(e.message));
+  const refresh = useCallback(async (preferred) => {
+    try {
+      const list = await getRuns();
+      setRuns(list.runs);
+      const next = preferred ?? list.current_run_id;
+      setRunId(next);
+      const ov = await getOverview(next);
+      setStatus({ run_id: ov.run_id, label: ov.label, scenario: ov.scenario });
+      return next;
+    } catch (err) {
+      setStatus({ error: err.message });
+      return null;
+    }
   }, []);
 
-  return (
-    <main>
-      <h1>ProcessX</h1>
-      <p className="sub">NovaCart fulfilment — agentic process intelligence</p>
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
-      {error && <p className="bad">Backend unreachable: {error}</p>}
-      {!health && !error && <p>Checking backend…</p>}
-      {health && (
-        <dl>
-          <dt>Backend</dt>
-          <dd className="ok">{health.status}</dd>
-          <dt>journal_mode</dt>
-          <dd className={health.journal_mode === "wal" ? "ok" : "bad"}>
-            {health.journal_mode}
-          </dd>
-          <dt>Tables</dt>
-          <dd className={health.missing_tables.length ? "bad" : "ok"}>
-            {health.tables.length} / 8
-          </dd>
-          <dt>Indexes</dt>
-          <dd className={health.indexes.length === 5 ? "ok" : "bad"}>
-            {health.indexes.length} / 5
-          </dd>
-        </dl>
-      )}
-    </main>
+  const select = useCallback(
+    async (id) => {
+      setRunId(id);
+      try {
+        const ov = await getOverview(id);
+        setStatus({ run_id: ov.run_id, label: ov.label, scenario: ov.scenario });
+      } catch (err) {
+        setStatus({ error: err.message });
+      }
+    },
+    [],
+  );
+
+  return (
+    <BrowserRouter>
+      <RunContext.Provider value={{ runs, runId, setRunId: select, refresh, status }}>
+        <Navbar status={status} />
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/simulation" element={<Simulation />} />
+          <Route path="/chat" element={<Chat />} />
+          <Route path="*" element={<Dashboard />} />
+        </Routes>
+      </RunContext.Provider>
+    </BrowserRouter>
   );
 }

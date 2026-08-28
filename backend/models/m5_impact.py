@@ -1,14 +1,14 @@
-"""M5 -- intervention-impact prediction by counterfactual simulation (§A5).
+"""M5 -- intervention-impact prediction by counterfactual simulation.
 
 Not a regression on past interventions -- there are none to learn from. Instead
 the world is re-run with capacity or routing changed and the difference is
 measured. That is the only honest way to answer "what if we add a reviewer",
 which is what FR-5 asks for.
 
-Three seed replicates (42, 43, 44), cut from 5 in §A10. The replicates are
+Three seed replicates (42, 43, 44). The replicates are
 PAIRED: for a given seed the baseline and the counterfactual share an identical
 arrival stream, identical case attributes and identical per-(case,stage) service
-shocks, because all three come from a seed-only RNG stream (P1.4). The delta is
+shocks, because all three come from a seed-only RNG stream. The delta is
 therefore attributable to the intervention rather than to sampling noise, and
 the interval is narrow even at n = 3.
 """
@@ -48,7 +48,7 @@ def baseline_replicates(config, seeds=SEEDS):
 
 
 def evaluate_action(config, action, seeds=SEEDS, baselines=None):
-    """P3.3 -- returns delta_hours with a CI, plus the SLA movement M6 needs.
+    """returns delta_hours with a CI, plus the SLA movement M6 needs.
 
     Positive delta = improvement (cycle time went down).
     """

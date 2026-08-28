@@ -1,9 +1,9 @@
-"""P2.16 -- train all models, persist them, produce the four metric cards.
+"""train all models, persist them, produce the four metric cards.
 
 The registry owns the order of operations, which matters: M1 must be fitted
 before M3 and M4 because both take M1's residual as a window feature.
 
-Ground-truth separation (§A5): M1 and M3 are fitted on the runs' own event logs,
+Ground-truth separation: M1 and M3 are fitted on the runs' own event logs,
 M4 on its own synthetic fault corpus. The `ground_truth` table is read in one
 place only -- `metric_cards()` -- and never reaches a feature matrix.
 """
@@ -118,34 +118,43 @@ class Registry:
 
 
 def standard_worlds():
-    """The three worlds every phase from here on refers to."""
+    """The healthy world, the demo world, and the evaluation worlds."""
     healthy = engine.simulate(scenarios.healthy_config())
-    current = engine.simulate(scenarios.bottleneck_a_config())
-    cascade = engine.simulate(scenarios.bottleneck_a_config(),
-                              overrides=["auto_approve_low_risk"])
-    return healthy, current, cascade
+    current = engine.simulate(scenarios.scenario_config(scenarios.DEMO_SCENARIO))
+    others = {
+        name: engine.simulate(scenarios.scenario_config(name))
+        for name in scenarios.EVALUATION_SCENARIOS
+        if name != scenarios.DEMO_SCENARIO
+    }
+    return healthy, current, others
+
+
+def evaluation_spec(worlds):
+    """The `metric_cards` input: every fault scenario, with its ground truth.
+
+    A scenario is *scored* by M3 only when its fault has a real onset hour --
+    otherwise the lead time measures how long the queue took to build rather
+    than how long M3 took to see it.
+    """
+    spec = {}
+    for name, result in worlds.items():
+        truth = scenarios.ground_truth_for(name)
+        onset = scenarios.injected_at(name)
+        spec[name] = {
+            "result": result,
+            "truth_stage": truth["bottleneck_stage"],
+            "truth_cause": truth["true_cause"],
+            "injected_at": onset if onset is not None else 0.0,
+            "injected": onset is not None,
+        }
+    return spec
 
 
 def train_all(verbose=True):
     """Train on the standard worlds and score the four cards."""
-    healthy, current, cascade = standard_worlds()
+    healthy, current, others = standard_worlds()
     reg = Registry().train(current, healthy, verbose=verbose)
-    gt_a = scenarios.ground_truth_for("bottleneck_a")
-    gt_b = scenarios.ground_truth_for("cascade_b")
-    cards = reg.metric_cards({
-        "bottleneck_a": {
-            "result": current,
-            "truth_stage": gt_a["bottleneck_stage"],
-            "truth_cause": gt_a["true_cause"],
-            "injected_at": scenarios.INJECTED_AT_HOURS,
-            "injected": True,
-        },
-        "cascade_b": {
-            "result": cascade,
-            "truth_stage": gt_b["bottleneck_stage"],
-            "truth_cause": gt_b["true_cause"],
-            "injected_at": scenarios.INJECTED_AT_HOURS,
-            "injected": False,
-        },
-    })
-    return reg, cards, (healthy, current, cascade)
+    worlds = {scenarios.DEMO_SCENARIO: current}
+    worlds.update(others)
+    cards = reg.metric_cards(evaluation_spec(worlds))
+    return reg, cards, (healthy, current, others)

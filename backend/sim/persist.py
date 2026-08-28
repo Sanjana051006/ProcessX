@@ -1,6 +1,6 @@
-"""Bulk writes for simulation output (P1.9).
+"""Bulk writes for simulation output.
 
-Writer discipline per §A3: every run is written by ONE explicit BEGIN/COMMIT
+Writer discipline: every run is written by ONE explicit BEGIN/COMMIT
 using executemany. Never row-by-row, and never from a read endpoint.
 """
 
@@ -13,13 +13,15 @@ from backend import db
 from backend.sim import costs
 
 _EVENT_COLS = (
-    "run_id", "case_id", "stage", "arrival_ts", "start_ts", "end_ts",
+    "run_id", "case_id", "macro_stage", "stage", "arrival_ts", "start_ts", "end_ts",
     "resource_id", "queue_len_at_arrival", "servers_busy",
 )
 _CASE_COLS = (
-    "run_id", "case_id", "order_value", "customer_tier", "is_new_customer",
-    "fraud_risk", "region", "item_category", "created_ts", "weekday", "hour",
-    "needs_review",
+    "run_id", "case_id", "order_value", "customer_tier", "customer_segment",
+    "priority", "is_new_customer", "fraud_risk", "region", "item_category",
+    "claim_type", "claim_severity", "support_channel", "invoice_value",
+    "invoice_exception", "invoice_exception_reason", "created_ts", "weekday",
+    "hour", "needs_review",
 )
 
 
@@ -28,6 +30,7 @@ def _event_rows(run_id, events):
     return list(zip(
         [run_id] * n,
         events["case_id"].astype("int64").tolist(),
+        events["macro_stage"].tolist(),
         events["stage"].tolist(),
         events["arrival_ts"].astype("float64").tolist(),
         events["start_ts"].astype("float64").tolist(),
@@ -45,10 +48,18 @@ def _case_rows(run_id, cases):
         cases["case_id"].astype("int64").tolist(),
         cases["order_value"].astype("float64").tolist(),
         cases["customer_tier"].tolist(),
+        cases["customer_segment"].tolist(),
+        cases["priority"].tolist(),
         cases["is_new_customer"].astype("int64").tolist(),
         cases["fraud_risk"].astype("float64").tolist(),
         cases["region"].tolist(),
         cases["item_category"].tolist(),
+        cases["claim_type"].tolist(),
+        cases["claim_severity"].astype("float64").tolist(),
+        cases["support_channel"].tolist(),
+        cases["invoice_value"].astype("float64").tolist(),
+        cases["invoice_exception"].astype("int64").tolist(),
+        cases["invoice_exception_reason"].tolist(),
         cases["created_ts"].astype("float64").tolist(),
         cases["weekday"].astype("int64").tolist(),
         cases["hour"].astype("int64").tolist(),
@@ -60,7 +71,7 @@ def write_run(result, run_id, label=None, parent_run_id=None, ground_truth=None,
     """Persist one simulated world. Returns the KPI dict written to `runs`.
 
     Re-writing an existing run_id replaces it, so a reset-and-rerun is
-    idempotent -- which is what P7.4 (same seed, identical result) needs.
+    idempotent -- same seed, identical result.
     """
     conn = conn or db.get_conn()
     cfg = result["config"]
@@ -108,7 +119,7 @@ def write_run(result, run_id, label=None, parent_run_id=None, ground_truth=None,
 
 
 def write_investigation(conclusion, nodes, conn=None):
-    """P4.5 -- persist an investigation and every node, each with its own
+    """persist an investigation and every node, each with its own
     `reasoning` string. That string is the explainability requirement: a node
     records why the agent chose that probe, what it found, and what it changed."""
     conn = conn or db.get_conn()
@@ -157,10 +168,10 @@ def load_nodes(inv_id, conn=None):
 
 
 def write_interventions(inv_id, candidates, conn=None):
-    """P3.7 -- persist an investigation's scored candidates.
+    """persist an investigation's scored candidates.
 
     `int_id` is derived from (inv_id, action) rather than random, so re-running
-    the same investigation produces the same ids. P7.4 asks for two identical
+    the same investigation produces the same ids. Two identical
     end-to-end runs, and a uuid here would break that for no benefit.
     """
     conn = conn or db.get_conn()
@@ -194,7 +205,7 @@ def mark_applied(int_id, conn=None):
 
 
 # ------------------------------------------------------------------ reads ---
-# Analytics run in pandas, in memory (§A3) -- these just pull the frames back.
+# Analytics run in pandas, in memory -- these just pull the frames back.
 
 def load_events(run_id, conn=None):
     return pd.read_sql(

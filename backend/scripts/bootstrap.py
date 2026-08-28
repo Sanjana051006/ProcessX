@@ -3,11 +3,11 @@
     .venv/Scripts/python -m backend.scripts.bootstrap      (Windows)
     .venv/bin/python -m backend.scripts.bootstrap          (macOS / Linux)
 
-Drops and recreates the database, simulates the two worlds, trains M1-M4 and
+Drops and recreates the database, simulates the demo worlds, trains M1-M4 and
 writes the model artifacts. Safe to re-run at any time -- everything is keyed
 off the master seed, so a second run reproduces the first exactly.
 
-This is also what P8.3 wants: one command back to the demo start state.
+One command back to the demo start state.
 """
 
 import argparse
@@ -17,9 +17,12 @@ from backend import db
 from backend.models import registry
 from backend.sim import engine, persist, scenarios
 
+# run_id -> (scenario, parent run). The demo start state is the healthy world
+# plus the world the demo tells its story about; the evaluation scenarios are
+# scored during training and do not need to be persisted.
 RUNS = {
-    "baseline": ("Healthy baseline", "healthy", None),
-    "bottleneck_a": ("Bottleneck A injected", "bottleneck_a", "baseline"),
+    "baseline": ("healthy", None),
+    scenarios.DEMO_SCENARIO: (scenarios.DEMO_SCENARIO, "baseline"),
 }
 
 
@@ -36,17 +39,16 @@ def bootstrap(train=True, verbose=True):
 
     say("2/3  simulating the worlds (seed %d) ..." % engine.C.MASTER_SEED)
     results, kpis = {}, {}
-    for run_id, (label, scenario, parent) in RUNS.items():
+    for run_id, (scenario, parent) in RUNS.items():
         result = engine.simulate(scenarios.scenario_config(scenario))
         truth = dict(scenarios.ground_truth_for(scenario))
-        truth["injected_at"] = (
-            scenarios.INJECTED_AT_HOURS if scenario == "bottleneck_a" else None)
-        kpi = persist.write_run(result, run_id, label=label,
+        truth["injected_at"] = scenarios.injected_at(scenario)
+        kpi = persist.write_run(result, run_id, label=scenarios.label_for(scenario),
                                 parent_run_id=parent, ground_truth=truth)
         results[run_id] = result
         kpis[run_id] = kpi
         say("     %-13s %5d cases | cycle %6.2f h | Rs %6.1f/case | SLA breach %.2f%%"
-            % (run_id, kpi["n_cases"], kpi["mean_cycle_hours"],
+            % (run_id[:13], kpi["n_cases"], kpi["mean_cycle_hours"],
                kpi["cost_per_case"], 100 * kpi["sla_breach_rate"]))
 
     if not train:

@@ -1,0 +1,112 @@
+import { useState } from "react";
+
+/**
+ * The tool activity strip under an assistant turn.
+ *
+ * The agent's honesty depends on this being visible. It answers from tool
+ * results, and the difference between an answer grounded in a query and an
+ * answer invented out of the prompt is exactly the list of calls it made — so
+ * the list is shown by default, collapsed to one line per call, expandable to
+ * the raw result the model actually read.
+ */
+
+const VERBS = {
+  describe_schema: "Read the schema",
+  query_database: "Queried the database",
+  list_runs: "Listed the simulated worlds",
+  get_process_map: "Read the process map",
+  get_run_overview: "Pulled the run KPIs",
+  get_stage_health: "Read the activity table",
+  get_macro_breakdown: "Rolled up the macro-stages",
+  get_bottleneck_ranking: "Ran M2's ranking",
+  get_anomalies: "Checked M3's anomalies",
+  get_model_metrics: "Read the model scorecards",
+  get_investigation: "Ran the agent investigation",
+  get_interventions: "Priced the interventions",
+  get_intervention_catalogue: "Read the action catalogue",
+  simulate_intervention: "Simulated a counterfactual",
+  get_case_journey: "Followed a case journey",
+  find_cases: "Searched the cases",
+  compare_runs: "Compared two worlds",
+  compare_to_baseline_rule: "Compared against the fixed rule",
+};
+
+const DETAIL_KEYS = ["sql", "stage", "macro_stage", "case_id", "run_id", "run_id_a", "actions", "limit"];
+
+function label(tool, args = {}) {
+  const verb = VERBS[tool] ?? tool.replace(/_/g, " ");
+  for (const k of DETAIL_KEYS) {
+    const v = args?.[k];
+    if (v === undefined || v === null || v === "") continue;
+    const text = Array.isArray(v) ? v.join(" + ") : String(v);
+    return { verb, detail: text.length > 74 ? text.slice(0, 73) + "…" : text };
+  }
+  return { verb, detail: "" };
+}
+
+export default function Activity({ steps, running }) {
+  const [openTool, setOpenTool] = useState(null);
+  const tools = (steps ?? []).filter((s) => s.type === "tool");
+  const notes = (steps ?? []).filter((s) => s.type === "note");
+  if (!tools.length && !notes.length && !running) return null;
+
+  return (
+    <div className="mb-3 rounded-lg border border-ink/12 bg-paper-sink/40 px-3 py-2.5">
+      <ol className="space-y-1.5">
+        {(steps ?? []).map((s, i) =>
+          s.type === "note" ? (
+            <li key={i} className="flex gap-2 pl-[19px] text-[11.5px] italic leading-snug text-ink-light">
+              {s.text}
+            </li>
+          ) : (
+            <li key={i}>
+              <button
+                type="button"
+                onClick={() => setOpenTool(openTool === i ? null : i)}
+                className="flex w-full items-baseline gap-2 text-left"
+              >
+                <StatusDot ok={s.ok} />
+                <span className="text-[12px] font-medium text-ink-mid">
+                  {label(s.tool, s.args).verb}
+                </span>
+                {label(s.tool, s.args).detail && (
+                  <span className="truncate font-mono text-[10.5px] text-ink-faint">
+                    {label(s.tool, s.args).detail}
+                  </span>
+                )}
+                <span className="ml-auto shrink-0 font-mono text-[9.5px] tabular-nums text-ink-faint">
+                  {s.elapsed != null ? `${s.elapsed.toFixed(1)}s` : ""}
+                </span>
+              </button>
+              {openTool === i && (
+                <pre className="mt-1.5 max-h-56 overflow-auto rounded-md border border-ink/12 bg-paper p-2.5
+                                font-mono text-[10.5px] leading-relaxed text-ink-mid whitespace-pre-wrap break-all">
+                  {s.output || "(no output)"}
+                </pre>
+              )}
+            </li>
+          ),
+        )}
+        {running && (
+          <li className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink-faint animate-blink" />
+            <span className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-faint">
+              {running}
+            </span>
+          </li>
+        )}
+      </ol>
+    </div>
+  );
+}
+
+function StatusDot({ ok }) {
+  return (
+    <span
+      className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${
+        ok === false ? "bg-red" : "bg-band-green"
+      }`}
+      title={ok === false ? "The call failed" : "The call succeeded"}
+    />
+  );
+}

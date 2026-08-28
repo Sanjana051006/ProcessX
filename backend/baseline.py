@@ -1,17 +1,17 @@
-"""The fixed-rule comparator (P7.1).
+"""The fixed-rule comparator.
 
     Pick the stage with the highest mean duration, then buy the cheapest
     catalogue action for that stage.
 
 This is the rule a competent team writes without any of M1-M6, and it is what
-the agent has to beat. Under bottleneck A it picks `last_mile` -- 14 h of mean
+the agent has to beat. Across the lifecycle it picks `last_mile` -- 14 h of mean
 duration, a 0.0000 h queue, and nothing wrong with it.
 
 Two variants are computed, because the strict rule can be accused of being a
 straw man:
 
-* `strict`      -- the rule as written. `last_mile` has no catalogue action
-                   (§A6 cut `secondary_carrier`), so it recommends nothing.
+* `strict`      -- the rule as written. `last_mile` has no catalogue action,
+                   so it recommends nothing.
 * `fallthrough` -- the charitable repair: skip to the highest-duration stage
                    that does have an action. This is a genuinely stronger
                    opponent and is reported alongside, so the comparison is not

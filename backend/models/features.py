@@ -1,4 +1,4 @@
-"""Feature builders shared by M1-M4 (Architecture §4.1).
+"""Feature builders shared by M1-M4.
 
 Two feature sets:
 
@@ -6,7 +6,7 @@ Two feature sets:
 * per stage-hour  -- M3's anomaly windows and M4's cause windows.
 
 Every column here is derived from the event log and case attributes only.
-`ground_truth` is never read (§A5); it is used solely to score the result.
+`ground_truth` is never read; it is used solely to score the result.
 """
 
 import numpy as np
@@ -18,8 +18,14 @@ from backend.sim import config as C, costs
 # every run -- a model trained on one run can score another.
 _CAT_LEVELS = {
     "customer_tier": [k for k, _ in C.CUSTOMER_TIERS],
+    "customer_segment": [k for k, _ in C.CUSTOMER_SEGMENTS],
+    "priority": [k for k, _ in C.PRIORITIES],
     "region": [k for k, _ in C.REGIONS],
     "item_category": [k for k, _ in C.ITEM_CATEGORIES],
+    "claim_type": [k for k, _ in C.CLAIM_TYPES],
+    "support_channel": [k for k, _ in C.SUPPORT_CHANNELS],
+    "invoice_exception_reason": [k for k, _ in C.INVOICE_EXCEPTION_REASONS],
+    "macro_stage": list(C.MACRO_STAGES),
     "stage": list(C.STAGES),
 }
 
@@ -30,6 +36,7 @@ STRAIN_RATIO = 1.0
 
 M1_NUMERIC = [
     "order_value", "fraud_risk", "is_new_customer", "needs_review",
+    "claim_severity", "invoice_value", "invoice_exception",
     "queue_len_at_arrival", "servers_busy",
     "weekday", "hour", "stage_weekday", "stage_hour", "stage_is_weekend",
 ]
@@ -45,10 +52,14 @@ def _one_hot(df, column):
 
 
 def build_m1_features(events, cases):
-    """P2.1 -- one row per (case, stage). Target is stage duration in hours."""
+    """one row per (case, stage). Target is stage duration in hours."""
     ev = costs.derive(events) if "stage_duration" not in events.columns else events.copy()
-    keep = ["case_id", "order_value", "customer_tier", "is_new_customer", "fraud_risk",
-            "region", "item_category", "weekday", "hour", "needs_review"]
+    keep = [
+        "case_id", "order_value", "customer_tier", "customer_segment", "priority",
+        "is_new_customer", "fraud_risk", "region", "item_category", "claim_type",
+        "claim_severity", "support_channel", "invoice_value", "invoice_exception",
+        "invoice_exception_reason", "weekday", "hour", "needs_review",
+    ]
     df = ev.merge(cases[keep], on="case_id", how="left")
 
     df["stage_weekday"] = ((df["arrival_ts"] // 24) % 7).astype(np.int64)
@@ -57,16 +68,22 @@ def build_m1_features(events, cases):
 
     X = pd.concat(
         [df[M1_NUMERIC].astype(float)] + [_one_hot(df, c) for c in
-                                          ("customer_tier", "region", "item_category", "stage")],
+                                          (
+                                              "customer_tier", "customer_segment",
+                                              "priority", "region", "item_category",
+                                              "claim_type", "support_channel",
+                                              "invoice_exception_reason",
+                                              "macro_stage", "stage",
+                                          )],
         axis=1,
     )
     y = df["stage_duration"].astype(float)
-    meta = df[["case_id", "stage", "arrival_ts", "queue_wait", "service_time"]].copy()
+    meta = df[["case_id", "macro_stage", "stage", "arrival_ts", "queue_wait", "service_time"]].copy()
     return X, y, meta
 
 
 def time_split(meta, train_frac=0.7):
-    """§A5 -- time-based split, never random: the test set is the tail of the
+    """Time-based split, never random: the test set is the tail of the
     horizon, so the model is always predicting forward."""
     cutoff = meta["arrival_ts"].quantile(train_frac)
     train = (meta["arrival_ts"] <= cutoff).to_numpy()
@@ -107,10 +124,33 @@ def _concentration(values, weights):
     return float(shares.max())
 
 
-def build_window_features(events, cases, residuals=None, n_windows=None):
-    """P2.8 / P2.12 -- one row per (stage, hour window).
+# How far back the roster is read. Long enough that a recurring weekend dip is
+# still a deficit against the working week (a weekend is 48 h), short enough
+# that a roster cut made for good settles in within a few days.
+ROSTER_WINDOW_HOURS = 72
 
-    Utilisation is mean concurrent servers over the stage's FULL observed
+
+def _prevailing_roster(active, window=ROSTER_WINDOW_HOURS):
+    """The capacity the stage is currently established at, read off the log.
+
+    A single all-time max is wrong for any stage whose roster changes for good:
+    every hour after a permanent cut then reads as "running below the roster",
+    which is the staffing-shortage signature, when what actually happened is
+    that the roster itself got smaller. A trailing max says what the stage has
+    recently been able to field, so a temporary dip still shows as a deficit
+    and a permanent one becomes the new normal.
+    """
+    if not len(active):
+        return np.ones(0)
+    rolled = pd.Series(np.asarray(active, dtype=float)).rolling(
+        window, min_periods=1).max().to_numpy()
+    return np.maximum(rolled, 1.0)
+
+
+def build_window_features(events, cases, residuals=None, n_windows=None):
+    """one row per (stage, hour window).
+
+    Utilisation is mean concurrent servers over the stage's PREVAILING observed
     roster, so a stage running 1 of its 3 reviewers reads as low utilisation
     with a long queue (staffing shortage) while a stage running 5 of 5 reads as
     saturated (capacity saturation). That contrast, together with
@@ -136,8 +176,7 @@ def build_window_features(events, cases, residuals=None, n_windows=None):
         if sub.empty:
             continue
         busy, active = _occupancy(sub, n_windows)
-        roster = int(active.max()) if active.size else 1
-        roster = max(roster, 1)
+        roster = _prevailing_roster(active)
 
         grp = sub.groupby("window", sort=True)
         agg = pd.DataFrame({
@@ -187,7 +226,18 @@ def build_window_features(events, cases, residuals=None, n_windows=None):
         # replaces a raw idle-capacity feature, which conflates "roster has a
         # hole in it" with "nobody is busy right now" and does not survive the
         # move from a training world to the demo world.
-        busy_windows = agg[agg["n_arrivals"] > 0]
+        # Regime context is defined on the roster the stage currently runs. A
+        # window recorded on a different roster belongs to a different regime,
+        # and mixing the two is what makes a permanent capacity cut read as a
+        # shortage: while the trailing roster still remembers the old headcount,
+        # every strained hour looks like "queueing with capacity sitting idle",
+        # which is the shortage signature. A stage whose roster never changed --
+        # including one that merely dips at the weekend, since the trailing max
+        # still spans the working week -- keeps every window.
+        active_windows = agg[agg["n_arrivals"] > 0]
+        current_roster = float(roster[-1]) if len(roster) else 1.0
+        regime = active_windows[active_windows["roster"] == current_roster]
+        busy_windows = regime if len(regime) >= 10 else active_windows
         if len(busy_windows) >= 10:
             worst = busy_windows.nlargest(max(len(busy_windows) // 10, 1), "mean_wait")
             agg["stage_util_at_peak_wait"] = float(worst["utilisation"].mean())
@@ -232,12 +282,12 @@ def build_window_features(events, cases, residuals=None, n_windows=None):
     return out
 
 
-# Columns M3 scores on (Architecture §4.1).
+# Columns M3 scores on.
 M3_FEATURES = [
     "mean_wait", "p90_wait", "mean_service", "throughput", "utilisation", "mean_residual",
 ]
 
-# M4's set (§A5 -- wait_to_service_ratio must stay). Every column is scale-free,
+# M4's set -- wait_to_service_ratio must stay. Every column is scale-free,
 # for the reason given above. `mean_residual` is deliberately excluded: M4's
 # training corpus is generated without a per-run M1 fit, so a residual feature
 # would be identically zero in training and non-zero at inference.

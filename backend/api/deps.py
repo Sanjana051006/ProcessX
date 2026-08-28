@@ -4,8 +4,7 @@ Two things every endpoint needs: the trained models, and the world a request is
 talking about.
 
 The "current run" is NOT held in memory -- it is the most recently created row
-in `runs`. That keeps the API restart-safe without adding a 9th table (§A3
-freezes the list at 8), and it is correct by construction: reset, inject and
+in `runs`. That keeps the API restart-safe without adding a ninth table, and it is correct by construction: reset, inject and
 apply each create the run that should become current.
 
 Run frames are rebuilt by re-simulating from the config stored on the row. At

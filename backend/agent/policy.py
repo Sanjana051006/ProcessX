@@ -1,4 +1,4 @@
-"""P4.3 -- probe selection and the stopping rule (§A8).
+"""probe selection and the stopping rule.
 
 This module is the difference between the agent and the baseline. Ranking
 stages is what M2 already does; choosing which question to ask next, by
@@ -6,7 +6,7 @@ expected information gain, is what makes this an agent.
 
     selection score = m2_impact_share x normalised_entropy(m4_proba)
 
-Reading the entropy term (Status §D, found at P2.15)
+Reading the entropy term
 ----------------------------------------------------
 M4 is decisive on this simulator -- once a stage has been probed its entropy is
 0.000. Taken literally as "entropy of M4's posterior for this candidate", the
@@ -30,13 +30,22 @@ import numpy as np
 from backend.agent import probes as probe_mod
 from backend.sim import config as C
 
-MAX_PROBES = 6                  # §A8
-CONFIDENCE_THRESHOLD = 0.65     # §A8
+MAX_PROBES = 6
+CONFIDENCE_THRESHOLD = 0.65
 
 # Stop drilling once the best remaining probe would explain less than this
 # fraction of the leading stage's impact. Expressed as a fraction rather than
 # an absolute so it does not need retuning when the ranking changes scale.
-INFORMATION_FLOOR_FRACTION = 0.25
+#
+# 0.40 across 24 activities, not the 0.25 a 5-stage pipeline used. Impact share
+# is normalised over every activity, and M2's utilisation term gives each one a
+# floor simply for existing: on the lifecycle the leader carries 0.17 and the
+# other 23 cluster at 0.053-0.061. A 0.25 fraction puts the bar at 0.043, below
+# that cluster, so the agent walks all 23 in descending order and stops only
+# when it runs out of probes. 0.40 asks the real question -- is anything left
+# that is even comparable to the leader -- and the answer on a lifecycle with
+# one constraint is no.
+INFORMATION_FLOOR_FRACTION = 0.40
 
 
 def normalised_entropy(hypotheses):
@@ -87,7 +96,7 @@ def candidates(state, ctx):
             })
 
     # Deterministic ordering: score first, then a stable key, so two identical
-    # runs produce identical trees (P7.4).
+    # runs produce identical trees.
     return sorted(out, key=lambda c: (-c["score"], c["probe_type"], c["target"]))
 
 
@@ -97,14 +106,14 @@ def select(state, ctx):
 
 
 def confident_stage(state):
-    """The highest-impact stage whose leading cause clears the §A8 threshold."""
+    """The highest-impact stage whose leading cause clears the confidence threshold."""
     return state.top_hypothesis(threshold=CONFIDENCE_THRESHOLD)
 
 
 def converged(state, ctx):
     """Stop when the cause is known AND nothing worth asking is left.
 
-    §A8 sets the probability bar at 0.65. On its own that bar would stop the
+    The probability bar is 0.65. On its own that bar would stop the
     agent after a single probe, with a cause but no account of when or where it
     bites -- and the intervention choice depends on that account (a weekend
     shift reallocation only makes sense for a weekend-concentrated fault). So
@@ -120,7 +129,7 @@ def converged(state, ctx):
     best = remaining[0]
     # The floor is a fraction of the LEADING stage's impact, not of the
     # candidate's own. Scoring each candidate against itself would clear every
-    # stage probe by construction and march the agent through all five stages.
+    # stage probe by construction and march the agent through every stage.
     lead_impact = state.stage_health[stage].impact_share if stage in state.stage_health else 0.0
     floor = INFORMATION_FLOOR_FRACTION * lead_impact
     if best["score"] < floor or best["score"] <= 1e-9:

@@ -1,8 +1,8 @@
-"""P5.4 -- apply an intervention, and compare the agent against the fixed rule."""
+"""apply an intervention, and compare the agent against the fixed rule."""
 
 from fastapi import APIRouter, HTTPException
 
-from backend import db
+from backend import analytics, db
 from backend.agent import controller
 from backend.api.deps import get_state
 from backend.jsonsafe import clean
@@ -53,6 +53,8 @@ def apply_intervention(int_id: str, apply_selected: bool = False):
         parent, reg, actions, child_run_id, parent_run_id,
         label="After " + ", ".join(actions), conn=conn)
     state.cache_run(child_run_id, child)
+    # M1 was refitted on the child world, so every cached panel is now stale.
+    analytics.invalidate_pipeline()
     for c in chosen:
         persist.mark_applied(c["int_id"], conn=conn)
 
@@ -81,7 +83,7 @@ def apply_intervention(int_id: str, apply_selected: bool = False):
 def baseline_compare(run_id: str = None):
     """Fixed rule vs agent, on the same world.
 
-    Reads what the investigate path already wrote (§A3: read endpoints never
+    Reads what the investigate path already wrote (read endpoints never
     write), so it 404s until an investigation has run on this world.
     """
     state = get_state()

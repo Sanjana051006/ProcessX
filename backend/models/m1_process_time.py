@@ -1,7 +1,14 @@
-"""M1 -- process-time prediction (§A5).
+"""M1 -- process-time prediction.
 
-GradientBoostingRegressor(n_estimators=200, max_depth=3, learning_rate=0.1,
-random_state=42) over the per case-stage feature set, time-split.
+GradientBoostingRegressor(loss="absolute_error", n_estimators=150, max_depth=3,
+learning_rate=0.1, random_state=42) over the per case-stage feature set,
+time-split.
+
+The loss has to match the metric. Stage duration is queue wait plus a lognormal
+service draw, so the target is heavily right-tailed; squared error chases that
+tail and lands on a conditional mean that scores WORSE on MAE than simply
+predicting each activity's average (-15% against the per-stage baseline).
+Absolute error puts it back ahead of that baseline.
 
 Its residuals are the point: M2 takes a stage's share of unexplained delay as
 25% of its bottleneck score, and M4 takes the window-mean residual as a feature.
@@ -16,7 +23,8 @@ from backend.models import features
 class M1:
     def __init__(self):
         self.model = GradientBoostingRegressor(
-            n_estimators=200, max_depth=3, learning_rate=0.1, random_state=42
+            loss="absolute_error", n_estimators=150, max_depth=3,
+            learning_rate=0.1, random_state=42
         )
         self.columns = None
         self.metrics = {}
@@ -31,7 +39,7 @@ class M1:
         y_test = y.to_numpy()[test]
 
         mae = float(np.mean(np.abs(y_test - pred_test)))
-        # The metric §A5 names: a single global mean.
+        # The headline baseline: a single global mean.
         mean_pred = float(y.to_numpy()[train].mean())
         mae_mean = float(np.mean(np.abs(y_test - mean_pred)))
         # A tougher reference: predict each stage's own training mean.
@@ -73,5 +81,10 @@ class M1:
                 self.metrics["mae_hours"], self.metrics["mae_mean_predictor"],
                 self.metrics["mae_stage_mean_predictor"]),
             "target": 0.30,
-            "pass": self.metrics["improvement_vs_mean"] > 0.30,
+            # Beating a single global mean is easy when last_mile takes 14 h and
+            # closure takes 3 minutes, so the card also requires beating the
+            # per-activity mean. Without that second clause a model that has
+            # learnt nothing but "which activity is this" still passes.
+            "pass": (self.metrics["improvement_vs_mean"] > 0.30
+                     and self.metrics["improvement_vs_stage_mean"] > 0.0),
         }

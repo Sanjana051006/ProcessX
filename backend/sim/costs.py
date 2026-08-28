@@ -1,8 +1,8 @@
-"""Derived time and cost columns (P1.11).
+"""Derived time and cost columns.
 
-The simulator models *time*; cost is derived from it (Status §C: "Model time,
+The simulator models *time*; cost is derived from it ("model time,
 derive cost" -- generating cost directly would leave M4 with no signature to
-classify). Everything below is a pure function of the event log plus the §A7
+classify"). Everything below is a pure function of the event log plus the ROI
 constants.
 """
 
@@ -81,6 +81,31 @@ def stage_summary(events, horizon_hours=None, config=None):
             for stage, busy in zip(out.index, out["busy_hours"])
         ]
     return out.reindex(C.STAGES)
+
+
+def macro_stage_summary(events, horizon_hours=None, config=None):
+    """Aggregate activity summaries to the v2 macro-stage level.
+
+    `mean_wait`, `mean_service` and `mean_duration` are SUMS of the per-activity
+    means, not means of them: every case visits every activity exactly once, so
+    the sum is what one case spends passing through the whole macro-stage.
+    `avg_utilisation` is a mean, because utilisation does not add up.
+    """
+    st = stage_summary(events, horizon_hours, config).reset_index(names="stage")
+    st["macro_stage"] = st["stage"].map(C.STAGE_TO_MACRO)
+    grouped = st.groupby("macro_stage", sort=False)
+    out = grouped.agg(
+        n=("n", "sum"),
+        mean_wait=("mean_wait", "sum"),
+        mean_service=("mean_service", "sum"),
+        mean_duration=("mean_duration", "sum"),
+        total_wait=("total_wait", "sum"),
+        busy_hours=("busy_hours", "sum"),
+        avg_utilisation=("utilisation", "mean"),
+    )
+    total_wait = out["total_wait"].sum()
+    out["queue_wait_share"] = out["total_wait"] / total_wait if total_wait else 0.0
+    return out.reindex(C.MACRO_STAGES)
 
 
 def offered_utilisation(stage_cfg, busy_hours, horizon_hours):

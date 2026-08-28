@@ -1,4 +1,4 @@
-"""P4.1 -- the agent's working state (Architecture §5).
+"""the agent's working state.
 
 Serialised to `investigations` / `investigation_nodes` after each step, which is
 what lets the dashboard render the tree.
@@ -20,7 +20,7 @@ class Hypothesis:
 @dataclass
 class Evidence:
     probe_type: str             # 'stage' | 'factor'
-    target: str                 # 'pick_pack' or 'order_validation:weekday'
+    target: str                 # 'evidence_review' or 'evidence_review:weekday'
     stage: str
     data: dict
     summary: str
@@ -76,7 +76,7 @@ class ProcessState:
     probes_remaining: int = 0
     actions_taken: list = field(default_factory=list)
 
-    # Bookkeeping the loop needs on top of Architecture §5.
+    # Bookkeeping the loop needs on top of the state fields above.
     probed_stages: set = field(default_factory=set)
     probed_factors: set = field(default_factory=set)   # (stage, dimension)
     hypotheses_by_stage: dict = field(default_factory=dict)
@@ -97,10 +97,9 @@ class ProcessState:
 
         Ranked by M2 IMPACT among stages whose cause is settled, not by
         probability. Once the agent has probed more than one stage it can hold
-        two confident diagnoses at once -- in the bottleneck-A world both
-        order_validation and pick_pack come back at p = 1.00 -- and the one
-        worth acting on is the one carrying the delay, not whichever the
-        classifier happened to be marginally surer about.
+        two confident diagnoses at once, and the one worth acting on is the one
+        carrying the delay, not whichever the classifier happened to be
+        marginally surer about.
         """
         if stage is not None:
             hyps = self.hypotheses_by_stage.get(stage) or []

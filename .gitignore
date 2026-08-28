@@ -20,3 +20,5 @@ frontend/dist/
 
 # Trained model artifacts
 backend/models/artifacts/
+
+.env

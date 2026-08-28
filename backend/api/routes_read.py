@@ -1,4 +1,4 @@
-"""P5.2 -- read endpoints. These never write (§A3 writer discipline)."""
+"""Read endpoints. These never write."""
 
 from fastapi import APIRouter
 
@@ -8,7 +8,7 @@ from backend.sim import config as C, costs
 
 router = APIRouter(prefix="/api", tags=["read"])
 
-# Architecture §8: green < 1.1x expected, amber 1.1-1.5x, red > 1.5x.
+# Health bands: green < 1.1x expected, amber 1.1-1.5x, red > 1.5x.
 _AMBER, _RED = 1.1, 1.5
 
 
@@ -26,12 +26,11 @@ def _reference_durations(state, row):
     """The 'expected' the health colours are measured against: the run's OWN
     PARENT, not the healthy baseline.
 
-    This is the P1.10 finding (Status §D) applied to the UI. Fixing bottleneck A
-    restores healthy throughput rather than exceeding it, so post-fix pick_pack
-    is statistically indistinguishable from healthy pick_pack -- against a
-    healthy reference the cascade renders green and beat 4, the whole point of
-    the demo, is invisible. Against the world the operator was just looking at,
-    pick_pack goes red exactly when it becomes the constraint.
+    A fix restores healthy throughput rather than exceeding it, so against the
+    healthy baseline an intervened run renders uniformly green and the operator
+    sees no movement. Against the world they were just looking at, a stage
+    turns red exactly when it becomes the constraint and green exactly when a
+    fix relieves it.
 
     A run with no parent has nothing to be worse than, so it reads green.
     """
@@ -49,8 +48,8 @@ def _reference_durations(state, row):
 
 @router.get("/stages/health")
 def stages_health(run_id: str = None):
-    """Per-stage metrics, anomaly flags and the process-map data (§A9 merged
-    the map endpoint into this one)."""
+    """Per-stage metrics, anomaly flags and the process-map data (the process map is
+    served from this endpoint rather than its own)."""
     state = get_state()
     reg = state.models()
     row = state.run_row(run_id)
@@ -73,6 +72,7 @@ def stages_health(run_id: str = None):
         cfg = result["config"]["stages"][stage]
         stages.append({
             "stage": stage,
+            "macro_stage": C.macro_stage_for(stage),
             "order": order,
             "mean_wait_hours": float(r["mean_wait"]),
             "mean_service_hours": float(r["mean_service"]),
@@ -99,7 +99,18 @@ def stages_health(run_id: str = None):
         "health_reference_run_id": reference_run_id,
         "kpis": kpis,
         "stages": stages,
-        # Process map: fixed linear pipeline (§A1).
+        # Process map: fixed linear pipeline.
+        "macro_stages": [
+            {
+                "macro_stage": macro,
+                "activities": stages_in_macro,
+                "contribution_pct": float(sum(
+                    s["contribution_pct"] for s in stages
+                    if s["macro_stage"] == macro
+                )),
+            }
+            for macro, stages_in_macro in C.STAGE_GROUPS
+        ],
         "edges": [{"from": a, "to": b} for a, b in zip(C.STAGES, C.STAGES[1:])],
     })
 
@@ -119,6 +130,7 @@ def bottleneck_ranking(run_id: str = None):
             {
                 "rank": int(r["rank"]),
                 "stage": r["stage"],
+                "macro_stage": C.macro_stage_for(r["stage"]),
                 "score": float(r["score"]),
                 "contribution_pct": float(r["contribution_pct"]),
                 "queue_wait_share": float(r["queue_wait_share"]),
@@ -135,7 +147,7 @@ def bottleneck_ranking(run_id: str = None):
 @router.get("/models/metrics")
 def model_metrics():
     """The four metric cards. Computed at training time against `ground_truth`,
-    which is the only place that table is ever read (§A5)."""
+    which is the only place that table is ever read."""
     reg = get_state().models()
     return {
         "cards": reg.cards,

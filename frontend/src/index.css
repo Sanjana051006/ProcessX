@@ -1,15 +1,258 @@
-:root {
-  color-scheme: dark;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: #0f1115;
-  color: #e6e8ee;
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Geist+Mono:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Paper and ink. A warm cream ground with near-black type -- the whole
+       system is built on the contrast between those two and one red. */
+    --paper: 247 243 236;
+    --paper-soft: 241 236 227;
+    --paper-sink: 233 227 216;
+    --ink: 10 10 10;
+    --ink-mid: 75 70 65;
+    --ink-light: 122 114 104;
+    --ink-faint: 163 155 144;
+    --rule: 10 10 10;
+    --rule-soft: 10 10 10;
+
+    --red: 214 40 40;
+    --red-soft: 226 122 108;
+
+    /* Data bands: deep enough to hold their own against cream, spaced far
+       enough apart in lightness to survive greyscale. */
+    --green: 47 125 79;
+    --amber: 199 125 30;
+    --blue: 43 93 138;
+    --violet: 104 76 148;
+
+    --nav-h: 60px;
+    --nav-gap: 18px;
+    /* Everything below the floating capsule clears this. */
+    --nav-space: calc(var(--nav-h) + var(--nav-gap) * 2);
+  }
+
+  * {
+    border-color: rgb(var(--rule) / 0.12);
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Tabular figures everywhere a number is compared against another number.
+     Proportional digits make a column of metrics visibly ragged. */
+  .tnum,
+  table,
+  .metric {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    @apply bg-ink text-paper;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--ink) / 0.16);
+    border: 3px solid rgb(var(--paper));
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--ink) / 0.3);
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--red));
+    outline-offset: 2px;
+  }
 }
-body { margin: 0; }
-main { max-width: 900px; margin: 0 auto; padding: 48px 24px; }
-h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: -0.02em; }
-.sub { margin: 0 0 32px; color: #8b91a1; }
-dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 24px; margin: 0; }
-dt { color: #8b91a1; }
-dd { margin: 0; font-variant-numeric: tabular-nums; }
-.ok { color: #4ade80; }
-.bad { color: #f87171; }
+
+@layer components {
+  /* The reference's micro-label: mono, uppercase, wide tracking. It is the
+     system's only "small caps" device and it does a lot of work -- section
+     eyebrows, table headers, chart axes, tags. */
+  .eyebrow {
+    @apply font-mono text-label uppercase text-ink-light;
+  }
+
+  .rule-t {
+    border-top: 2px solid rgb(var(--ink));
+  }
+  .rule-b {
+    border-bottom: 1px solid rgb(var(--ink) / 0.14);
+  }
+
+  /* A panel is a hard-edged card: thin ink hairline, no rounding beyond a
+     whisper, no drop shadow. The lift comes from the paper tint, not from blur. */
+  .panel {
+    @apply bg-paper-soft/60 border border-ink/12 rounded-xl;
+  }
+  .panel-flat {
+    @apply bg-paper border border-ink/12 rounded-xl;
+  }
+
+  .tag {
+    @apply font-mono text-[9.5px] uppercase tracking-[0.18em] px-2 py-[3px]
+           border border-ink/20 rounded-full text-ink-mid whitespace-nowrap;
+  }
+
+  /* Pull quote, set in serif italic like the reference's act openers. */
+  .quote {
+    @apply font-serif italic text-ink-mid;
+  }
+
+  .link-underline {
+    @apply relative after:absolute after:left-0 after:-bottom-0.5 after:h-px
+           after:w-full after:origin-right after:scale-x-0 after:bg-current
+           after:transition-transform hover:after:origin-left hover:after:scale-x-100;
+  }
+
+  /* ---- Chat markdown --------------------------------------------------- */
+  /* Assistant replies render as full-width rich text, not in a bubble, so the
+     typography has to carry the structure on its own. */
+  .md {
+    @apply text-[15px] leading-[1.68] text-ink;
+  }
+  .md > *:first-child {
+    margin-top: 0;
+  }
+  .md > *:last-child {
+    margin-bottom: 0;
+  }
+  .md p {
+    @apply my-3;
+  }
+  .md strong {
+    @apply font-semibold text-ink;
+  }
+  .md em {
+    @apply italic;
+  }
+  .md h1,
+  .md h2,
+  .md h3,
+  .md h4 {
+    @apply font-semibold tracking-[-0.02em] mt-6 mb-2 text-ink;
+  }
+  .md h1 {
+    @apply text-[1.35rem];
+  }
+  .md h2 {
+    @apply text-[1.15rem];
+  }
+  .md h3 {
+    @apply text-[1rem];
+  }
+  .md ul,
+  .md ol {
+    @apply my-3 pl-5 space-y-1.5;
+  }
+  .md ul {
+    @apply list-disc;
+  }
+  .md ol {
+    @apply list-decimal;
+  }
+  .md li::marker {
+    @apply text-ink-faint;
+  }
+  .md blockquote {
+    @apply border-l-2 border-red pl-4 my-4 text-ink-mid;
+  }
+  .md a {
+    @apply text-red underline underline-offset-2 decoration-red/40 hover:decoration-red;
+  }
+  .md hr {
+    @apply my-6 border-t border-ink/12;
+  }
+  .md code {
+    @apply font-mono text-[0.85em] bg-paper-sink/70 border border-ink/10
+           rounded px-1.5 py-0.5;
+  }
+  .md pre {
+    @apply my-4 overflow-x-auto bg-ink text-paper rounded-lg p-4 text-[12.5px] leading-relaxed;
+  }
+  .md pre code {
+    @apply bg-transparent border-0 p-0 text-inherit font-mono;
+  }
+  /* A wide table must scroll inside itself rather than pushing the page. */
+  .md .table-scroll {
+    @apply my-4 overflow-x-auto border border-ink/14 rounded-lg;
+  }
+  .md table {
+    @apply w-full border-collapse text-[13.5px];
+  }
+  .md thead th {
+    @apply font-mono text-label uppercase text-ink-light text-left
+           px-3 py-2.5 bg-paper-sink/50 border-b border-ink/14 whitespace-nowrap;
+  }
+  .md tbody td {
+    @apply px-3 py-2 border-b border-ink/8 align-top;
+  }
+  .md tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .md tbody tr:hover {
+    @apply bg-paper-sink/30;
+  }
+
+  /* highlight.js, restyled onto the ink code block. */
+  .md .hljs-keyword,
+  .md .hljs-selector-tag,
+  .md .hljs-built_in {
+    color: #f0a3a3;
+  }
+  .md .hljs-string,
+  .md .hljs-attr {
+    color: #a7d3a7;
+  }
+  .md .hljs-number,
+  .md .hljs-literal {
+    color: #e6c07b;
+  }
+  .md .hljs-comment {
+    color: #7d7d7d;
+    font-style: italic;
+  }
+  .md .hljs-title,
+  .md .hljs-function {
+    color: #9dc4e8;
+  }
+}
+
+@layer utilities {
+  /* Fades the top edge of a scroll region so content dissolves at its boundary
+     instead of colliding with the floating navbar. */
+  .mask-top {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 26px);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 26px);
+  }
+  .grain {
+    position: relative;
+  }
+  .grain::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.5;
+    background-image: radial-gradient(rgb(var(--ink) / 0.055) 1px, transparent 1px);
+    background-size: 4px 4px;
+  }
+}

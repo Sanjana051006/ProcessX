@@ -1,4 +1,4 @@
-"""M2 -- bottleneck detection (§A5).
+"""M2 -- bottleneck detection.
 
 Deterministic score per stage:
 
@@ -70,7 +70,7 @@ def top_stage(ranked):
 
 def impact_share(ranked):
     """Normalised score per stage -- the `impact` term of the agent's
-    probe-selection rule (§A8)."""
+    probe-selection rule."""
     return dict(zip(ranked["stage"], ranked["score"] / ranked["score"].sum()))
 
 

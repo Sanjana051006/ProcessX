@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The whole demo, driven from curl (P5.5 / P8).
+# The whole ProcessX v2 demo, driven from curl.
 #
 #   bash backend/scripts/demo_curl.sh
 #
@@ -22,8 +22,8 @@ curl -s "$API/health" | pick "(d['status'], d['journal_mode'], d['models_loaded'
 head "beat 1a -- reset to the healthy world"
 curl -s -X POST "$API/runs/reset" | pick "(d['run_id'], round(d['kpis']['mean_cycle_hours'],2), d['models_loaded'])"
 
-head "beat 1b -- inject bottleneck A"
-curl -s -X POST "$API/runs/inject/bottleneck_a" | pick "(d['run_id'], round(d['kpis']['mean_cycle_hours'],2), round(d['kpis']['sla_breach_rate']*100,2))"
+head "beat 1b -- inject the claims bottleneck"
+curl -s -X POST "$API/runs/inject/claims_bottleneck" | pick "(d['run_id'], round(d['kpis']['mean_cycle_hours'],2), round(d['kpis']['sla_breach_rate']*100,2))"
 
 head "beat 1c -- stage health: M3 fires"
 curl -s "$API/stages/health" | pick "[(s['stage'], s['health'], round(s['mean_wait_hours'],2), s['anomalous']) for s in d['stages']]"
@@ -47,7 +47,7 @@ INT_ID=$(curl -s "$API/agent/$INV_ID/interventions" | pick "[i['int_id'] for i i
 head "beat 4a -- apply the whole selected portfolio"
 curl -s -X POST "$API/interventions/$INT_ID/apply?apply_selected=true" | pick "(d['child_run_id'], round(d['before']['mean_cycle_hours'],2), round(d['after']['mean_cycle_hours'],2), int(d['total_cost']))"
 
-head "beat 4b -- bottleneck B has surfaced on its own"
+head "beat 4b -- stage health after the fix"
 curl -s "$API/stages/health" | pick "[(s['stage'], s['health'], round(s['mean_wait_hours'],2)) for s in d['stages']]"
 
 head "beat 4c -- the agent re-plans, same code path"
@@ -56,8 +56,8 @@ echo "$INV2" | pick "(d['concluded_stage'], d['concluded_cause'], round(d['confi
 echo "$INV2" | pick "d['explanation']"
 
 head "beat 5 -- agent vs the fixed rule"
-curl -s "$API/baseline/compare?run_id=bottleneck_a" | pick "('agent', d['agent']['chosen_stage'], int(d['agent']['net_benefit']))"
-curl -s "$API/baseline/compare?run_id=bottleneck_a" | pick "('baseline strict', d['baseline']['strict']['chosen_stage'], d['baseline']['strict']['chosen_action'])"
+curl -s "$API/baseline/compare?run_id=claims_bottleneck" | pick "('agent', d['agent']['chosen_stage'], int(d['agent']['net_benefit']))"
+curl -s "$API/baseline/compare?run_id=claims_bottleneck" | pick "('baseline strict', d['baseline']['strict']['chosen_stage'], d['baseline']['strict']['chosen_action'])"
 
 head "model metric cards"
 curl -s "$API/models/metrics" | pick "[(c['model'], c['display'], c['pass']) for c in d['cards']]"

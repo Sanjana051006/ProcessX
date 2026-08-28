@@ -1,10 +1,10 @@
-"""P4.4 / P4.6 / P4.7 -- the investigation loop and the re-planning path.
+"""the investigation loop and the re-planning path.
 
-Synchronous by decision (§A8): the whole loop runs and returns the finished
+Synchronous by decision: the whole loop runs and returns the finished
 tree. The frontend reveals nodes client-side at 400 ms intervals, which looks
 identical to live growth without a polling hook or concurrent writes.
 
-The loop is the one in Architecture §6:
+The loop:
 
     while probes remain and not converged:
         SELECT   the probe with the highest impact x uncertainty
@@ -13,8 +13,8 @@ The loop is the one in Architecture §6:
         DRILL or STOP
     PROPOSE  every catalogue action for the concluded stage -> M5 -> M6
 
-Nothing in here knows which bottleneck it is looking at. P4.8 runs it twice,
-before and after the fix, with no code change between.
+Nothing in here knows which bottleneck it is looking at: the same loop runs
+before and after a fix, with no code change between.
 """
 
 import json
@@ -170,7 +170,7 @@ def investigate(result, registry, run_id, inv_id=None, budget=C.BUDGET_CAP,
 
 
 def propose_interventions(result, stage, state, seeds=m5.SEEDS):
-    """P4.6 -- every catalogue action for the concluded stage, simulated by M5
+    """every catalogue action for the concluded stage, simulated by M5
     and priced by M6, then selected greedily under the remaining budget."""
     config = result["config"]
     baselines = m5.baseline_replicates(config, seeds)
@@ -203,14 +203,14 @@ def _persist(conclusion, state, candidates, conn=None):
 
 def apply_intervention(result, registry, actions, run_id, parent_run_id,
                        label=None, refit=True, conn=None):
-    """P4.7 -- apply actions, create the child run, refresh the models.
+    """apply actions, create the child run, refresh the models.
 
     The child world is a full re-simulation on the same master seed, so it
     differs from its parent only by the intervention. M1 is refitted on the new
     log; M3 is NOT refitted -- its reference set is the healthy baseline and
     re-fitting it on the world being judged would destroy the comparison. M4 is
     not refitted either: its corpus is independent of any demo run by design
-    (§A5). "Refresh" therefore means refit M1 and re-score M2/M3/M4.
+   . "Refresh" therefore means refit M1 and re-score M2/M3/M4.
     """
     actions = list(actions)
     child_config = C.apply_actions(result["config"], actions)

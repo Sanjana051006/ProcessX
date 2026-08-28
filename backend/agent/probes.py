@@ -1,8 +1,8 @@
-"""P4.2 -- the two probe types and the evidence they return.
+"""the two probe types and the evidence they return.
 
 A *stage probe* slices the log for one stage and asks M4 what is wrong with it.
 A *factor probe* slices that stage's delay along one of the four locked
-dimensions (§A8) and reports where it concentrates.
+dimensions and reports where it concentrates.
 
 `factor_information` scores a dimension BEFORE it is probed, which is what lets
 the policy pick the next probe by expected information gain rather than by
@@ -16,7 +16,7 @@ from backend.jsonsafe import clean, finite
 from backend.models import features
 from backend.sim import costs
 
-# §A8, in the locked order.
+# The factor dimensions, in a fixed order.
 FACTOR_DIMENSIONS = ("weekday", "order_value_band", "is_new_customer", "resource_id")
 
 _WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]

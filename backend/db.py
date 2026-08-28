@@ -1,9 +1,9 @@
 """SQLite storage for ProcessX.
 
 Connection settings, PRAGMAs, indexes and writer rules are frozen in
-docs/Status.md §A3. The connect() body below is that block verbatim — do not tune it.
+the connect() body below — do not tune it.
 
-Writer discipline (§A3): only the simulate / agent / apply paths write.
+Writer discipline: only the simulate / agent / apply paths write.
 Read endpoints never write. Bulk inserts go through executemany() inside one
 explicit BEGIN/COMMIT — never row-by-row.
 """
@@ -32,7 +32,7 @@ def connect():
     return conn
 
 
-# One module-level connection, reused (§A3). No per-request connections.
+# One module-level connection, reused. No per-request connections.
 _conn = connect()
 
 
@@ -40,7 +40,7 @@ def get_conn():
     return _conn
 
 
-# The 8 locked tables (§A3). kpi_history is cut — before/after metrics are read
+# The 8 tables. kpi_history is cut — before/after metrics are read
 # from the runs table.
 TABLES = [
     "event_log",
@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS event_log (
     id                   INTEGER PRIMARY KEY,
     run_id               TEXT,
     case_id              INTEGER,
+    macro_stage          TEXT,
     stage                TEXT,
     arrival_ts           REAL,
     start_ts             REAL,
@@ -71,17 +72,25 @@ CREATE TABLE IF NOT EXISTS event_log (
 -- Per-case attributes, joined into feature sets.
 -- The primary key is composite: every run replays the SAME arrival stream from
 -- the master seed, so case_id 1 exists in every run and is only unique together
--- with run_id. Architecture §3.1 shows `case_id INTEGER PK`, which would collide
--- on the second run (Status §C).
+-- with run_id. A bare `case_id INTEGER PK` would collide
+-- on the second run.
 CREATE TABLE IF NOT EXISTS cases (
     case_id         INTEGER,
     run_id          TEXT,
     order_value     REAL,
     customer_tier   TEXT,
+    customer_segment TEXT,
+    priority        TEXT,
     is_new_customer INTEGER,
     fraud_risk      REAL,
     region          TEXT,
     item_category   TEXT,
+    claim_type      TEXT,
+    claim_severity  REAL,
+    support_channel TEXT,
+    invoice_value   REAL,
+    invoice_exception INTEGER,
+    invoice_exception_reason TEXT,
     created_ts      REAL,
     weekday         INTEGER,
     hour            INTEGER,
@@ -161,7 +170,7 @@ CREATE TABLE IF NOT EXISTS baseline_decisions (
     roi           REAL
 );
 
--- Locked indexes (§A3).
+-- Locked indexes.
 CREATE INDEX IF NOT EXISTS ix_event_run_stage ON event_log(run_id, stage);
 CREATE INDEX IF NOT EXISTS ix_event_case      ON event_log(run_id, case_id);
 CREATE INDEX IF NOT EXISTS ix_cases_run       ON cases(run_id);
@@ -176,7 +185,7 @@ def init_schema(conn=None):
 
 
 def reset(conn=None):
-    """Drop and recreate everything. There are no migrations (§A3) — this is the
+    """Drop and recreate everything. There are no migrations — this is the
     only way the schema changes, and it is what POST /api/runs/reset calls."""
     conn = conn or _conn
     drops = "\n".join(f"DROP TABLE IF EXISTS {t};" for t in TABLES)

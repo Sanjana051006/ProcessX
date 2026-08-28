@@ -1,14 +1,13 @@
 # ProcessX
 
-Agentic process intelligence over a simulated **NovaCart** order-fulfilment
-pipeline. A discrete-event simulator generates the world; six components
-(M1–M6) predict process times, rank bottlenecks, detect anomalies, classify
-causes, simulate interventions and pick the best one under a budget; an agent
-loop drives them and re-plans when a second bottleneck appears.
+Agentic process intelligence over a simulated **business lifecycle** —
+onboarding → order processing → claims → support → invoice approval, 24
+activities in five macro-stages. A discrete-event simulator generates the
+world; six components (M1–M6) predict process times, rank bottlenecks, detect
+anomalies, classify causes, simulate interventions and pick the best one under
+a budget; an agent loop drives them and re-plans after a fix.
 
-Docs: [PRD](docs/PRD.md) · [Architecture](docs/Architecture.md) ·
-[Status](docs/Status.md) — Status §A holds the frozen decisions, §C the
-decision log, §D open items.
+Docs: [ProcessX v2](docs/ProcessX_v2.md).
 
 ---
 
@@ -72,18 +71,21 @@ fresh clone has neither. This command creates both:
 macOS / Linux: `.venv/bin/python -m backend.scripts.bootstrap`
 
 It drops and recreates the 8 tables and 5 indexes, simulates the healthy
-baseline and the bottleneck-A world, writes ~78,000 event rows, then trains
-M1–M4 and saves them to `backend/models/artifacts/models.joblib`. Expect
-output ending like this:
+baseline and the claims-bottleneck world, writes ~89,000 event rows, then
+trains M1–M4 and saves them to `backend/models/artifacts/models.joblib`.
+Expect output ending like this:
 
 ```
-     metric cards
-     M1  Process-time prediction    76.2% better than mean         PASS
-     M2  Bottleneck detection       1.00 over 2 scenarios          PASS
-     M3  Anomaly detection          2 h worst case                 PASS
-     M4  Delay-cause prediction     1.00 over 605 windows          PASS
+     baseline       1847 cases | cycle  18.33 h | Rs  226.9/case | SLA breach 2.76%
+     claims_bottleneck  1847 cases | cycle  19.08 h | Rs  238.3/case | SLA breach 3.74%
 
-done in 40.4s. Demo start state is ready.
+     metric cards
+     M1  Process-time prediction    77.7% better than mean         PASS
+     M2  Bottleneck detection       1.00 over 3 scenarios          PASS
+     M3  Anomaly detection          8 h worst case                 PASS
+     M4  Delay-cause prediction     0.99 over 169 windows          PASS
+
+done in 98.5s. Demo start state is ready.
 ```
 
 If your four numbers match those exactly, your environment reproduces the
@@ -126,33 +128,54 @@ curl http://localhost:8000/api/health
 
 ---
 
-## Verifying a phase
+## Running the demo
 
-Each implementation phase has a self-checking script. They print `PASS` /
-`FAIL` per assertion and exit non-zero on any failure, so they double as the
-test suite. Run them from the repository root.
+The whole v2 story runs backend-only, no frontend and no server:
 
 ```bash
-.venv/Scripts/python -m backend.scripts.p1_verify
+.venv/Scripts/python -m backend.scripts.v2_demo
 ```
 
-| Script | Covers | Runtime |
-|---|---|---|
-| `backend.scripts.p1_verify` | Simulator, reproducibility, **the cascade** | ~6 s |
-| `backend.scripts.p2_verify` | M1–M4, the four metric cards, ground-truth separation | ~90 s |
-| `backend.scripts.p3_verify` | M5 counterfactuals, M6 ROI, **the ROI ordering** | ~25 s |
-| `backend.scripts.p4_verify` | The agent loop, **both conclusions with no code change** | ~75 s |
-| `backend.scripts.p5_verify` | All 11 endpoints over HTTP, writer discipline | ~60 s |
+It resets the database, simulates the healthy and constrained lifecycles,
+trains M1–M4, follows one business case through all five macro-stages, ranks
+bottlenecks by activity and by macro-stage, runs the agent investigation,
+prices the interventions and applies the ROI-positive set. Takes ~40 s and
+wipes the database, so re-run `bootstrap` afterwards if you want the demo
+start state back.
 
-`p1_verify`, `p3_verify` and `p4_verify` call `db.reset()`, so they wipe the
-database. `p5_verify` needs the backend already running on :8000 and drives it
-through the full demo. Re-run `bootstrap` afterwards to get back to the demo
-start state.
-
-To watch the whole demo over HTTP instead:
+To watch it over HTTP against a running backend instead:
 
 ```bash
 bash backend/scripts/demo_curl.sh
+```
+
+---
+
+## Verifying the build
+
+```bash
+.venv/Scripts/python -m backend.scripts.v2_verify
+```
+
+Prints `PASS` / `FAIL` per assertion and exits non-zero on any failure, so it
+doubles as the test suite. It checks seven things: the simulator is
+reproducible and every case walks all 24 activities; the healthy baseline has
+no strained activity and no queue that fails to drain; every injected
+constraint is stable and starts when its ground truth says it does; M1–M4 hold
+up on faults in three macro-stages across both causes, and report `normal`
+where nothing is wrong; the agent reaches the right conclusion and stops for a
+stated reason rather than running out of probes; M5/M6 pick an ROI-positive
+action that measurably helps; and storage round-trips without leaking ground
+truth into the feature tables. Takes ~20 minutes and wipes the database —
+re-run `bootstrap` afterwards.
+
+There are three fault scenarios. `claims_bottleneck` is the one the demo
+narrates; `support_staffing` and `fulfilment_saturation` exist so the metric
+cards are scored on more than one activity and more than one cause. All three
+can be injected over the API:
+
+```bash
+curl -X POST http://localhost:8000/api/runs/inject/support_staffing
 ```
 
 ---
@@ -166,7 +189,7 @@ backend/
   sim/
     config.py            frozen constants, intervention catalogue, ROI model
     engine.py            discrete-event loop -> event rows
-    scenarios.py         healthy baseline, bottleneck-A injection
+    scenarios.py         healthy baseline, claims-bottleneck injection
     costs.py             derived time and cost columns
     persist.py           bulk writes -- the only module that writes
   baseline.py            the fixed-rule comparator the agent has to beat
@@ -191,9 +214,9 @@ backend/
     m5_impact.py         counterfactual simulate() + seed replicates
     m6_roi.py            benefit model + greedy budget selection
     registry.py          train-all, persist, the four metric cards
-  scripts/               bootstrap + per-phase verification runners
+  scripts/               bootstrap, the backend-only demo, the curl walkthrough
 frontend/src/            React 19, no router, no state library, no chart library
-docs/                    PRD, Architecture, Status
+docs/                    ProcessX v2 spec
 ```
 
 ---
@@ -221,7 +244,7 @@ You are not in the repository root. `cd` to the directory containing
 **`sqlite3.OperationalError: database is locked`, or "device or resource busy"
 when deleting the DB**
 A `uvicorn` process still holds the file. Stop the backend before running
-`bootstrap` or any `*_verify` script.
+`bootstrap` or `v2_demo`.
 
 **`FileNotFoundError: ... models.joblib`**
 The models have not been trained on this machine. Run `bootstrap` (without
