@@ -76,9 +76,16 @@ export const applyIntervention = (int_id, applySelected = true) =>
     apply_selected: String(applySelected),
   });
 
+/* -- events (the pub/sub bus) --------------------------------------------- */
+
+export const getEvents = (params = {}) => get("/api/events", params);
+export const getEventStats = () => get("/api/events/stats");
+export const getEventCatalogue = () => get("/api/events/catalogue");
+
 /* -- chat ----------------------------------------------------------------- */
 
 export const getChatHealth = () => get("/api/chat/health");
+export const getChatModels = () => get("/api/chat/models");
 export const getSuggestions = () => get("/api/chat/suggestions");
 export const clearChatSession = (id) =>
   fetch(`${BASE}/api/chat/session/${id}`, { method: "DELETE" });

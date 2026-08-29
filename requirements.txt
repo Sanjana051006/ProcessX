@@ -11,3 +11,11 @@ pandas==3.0.5
 numpy==2.4.6
 scikit-learn==1.9.0
 joblib==1.5.3
+
+# The chat analyst: an HTTP client for the OpenCode gateway, and .env loading.
+httpx==0.28.1
+python-dotenv==1.1.1
+
+# Optional. Only needed to run the event bus on Redis Streams instead of the
+# in-process ring buffer (PROCESSX_BUS=redis). The app boots without it.
+# redis==6.4.0

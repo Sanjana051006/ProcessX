@@ -5,7 +5,7 @@ from backend.chat import agent as agent_mod
 from backend.chat.provider import LLMResponse, ToolCall
 
 class Scripted:
-    """Replays a list of responses, streaming their content like Groq would."""
+    """Replays a list of responses, streaming their content like the provider would."""
     def __init__(self, script):
         self.script = list(script)
         self.seen = []

@@ -19,15 +19,20 @@ from backend.api import (
     routes_agent,
     routes_chat,
     routes_dashboard,
+    routes_events,
     routes_read,
     routes_runs,
 )
+from backend.events import get_bus
 from backend.api.deps import get_state
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_schema()
+    # Bring the bus up before anything can publish, so the very first event of
+    # the process is `system.bus.online` rather than a dropped one.
+    get_bus()
     # Load the persisted models once at startup. Absent is not fatal -- the
     # endpoints that need them say so with a 503 naming the bootstrap command.
     state = get_state()
@@ -64,6 +69,7 @@ app.include_router(routes_agent.router)
 app.include_router(routes_actions.router)
 app.include_router(routes_dashboard.router)
 app.include_router(routes_chat.router)
+app.include_router(routes_events.router)
 
 
 @app.get("/api/health")
@@ -89,4 +95,5 @@ def health():
         "models_loaded": state.registry is not None,
         "n_runs": n_runs,
         "current_run_id": state.current_run_id() if n_runs else None,
+        "event_bus": get_bus().stats(),
     }

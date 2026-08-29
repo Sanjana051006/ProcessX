@@ -4,23 +4,27 @@ from fastapi import APIRouter, HTTPException
 
 from backend import analytics, db
 from backend.api.deps import get_state
+from backend.events import publishers as pub
 from backend.models import registry
 from backend.sim import engine, persist, scenarios
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 def _simulate_and_store(scenario, run_id, parent_run_id=None):
+    label = scenarios.label_for(scenario)
+    pub.run_started(run_id, scenario, label)
     result = engine.simulate(scenarios.scenario_config(scenario))
     truth = dict(scenarios.ground_truth_for(scenario))
     truth["injected_at"] = scenarios.injected_at(scenario)
     kpis = persist.write_run(
         result,
         run_id,
-        label=scenarios.label_for(scenario),
+        label=label,
         parent_run_id=parent_run_id,
         ground_truth=truth,
     )
     get_state().cache_run(run_id, result)
+    pub.run_completed(run_id, scenario, label, kpis, parent_run_id)
     return result, kpis
 
 

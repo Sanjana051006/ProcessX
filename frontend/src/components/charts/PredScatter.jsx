@@ -35,10 +35,11 @@ export default function PredScatter({ predictions, highlight, onSelect }) {
   const active = hover ?? pts.findIndex((p) => p.stage === highlight);
 
   return (
-    <div>
+    <div className="flex h-full min-h-0 flex-col">
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="w-full"
+        preserveAspectRatio="xMidYMid meet"
+        className="min-h-0 w-full flex-1"
         role="img"
         aria-label="M1 predicted duration against actual duration, per activity"
         onMouseLeave={() => setHover(null)}
@@ -117,7 +118,7 @@ export default function PredScatter({ predictions, highlight, onSelect }) {
         </text>
       </svg>
 
-      <p className="mt-1 h-4 text-center font-mono text-[10.5px] tabular-nums text-ink-mid">
+      <p className="mt-1 h-4 shrink-0 truncate text-center font-mono text-[10px] tabular-nums text-ink-3">
         {active >= 0 && pts[active] ? (
           <>
             {pts[active].label}: {hours(pts[active].actual)} actual vs{" "}

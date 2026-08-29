@@ -16,7 +16,7 @@ export default function ShareBar({ rows, valueKey = "share_of_cycle", total }) {
 
   return (
     <div>
-      <div className="flex h-11 w-full overflow-hidden rounded-lg border border-ink/12">
+      <div className="flex h-12 w-full overflow-hidden rounded-xl border border-line/8 shadow-xs">
         {rows.map((r) => {
           const share = (Number(r[valueKey]) || 0) / sum;
           const isActive = active === r.macro_stage;

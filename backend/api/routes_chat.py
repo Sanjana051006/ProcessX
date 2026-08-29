@@ -33,10 +33,7 @@ def chat(body: ChatRequest):
     if not body.message or not body.message.strip():
         raise HTTPException(status_code=400, detail="message is required")
     if not provider_mod.configured():
-        raise HTTPException(
-            status_code=503,
-            detail="GROQ_API_KEY is not set. Add it to a .env file at the repository "
-                   "root as  GROQ_API_KEY=gsk_...  and restart the backend.")
+        raise HTTPException(status_code=503, detail=provider_mod.KEY_HELP)
 
     chat_agent = agent_mod.ChatAgent(get_state())
 
@@ -73,21 +70,36 @@ def chat_health():
     state = get_state()
     configured = provider_mod.configured()
     tools = []
-    if state.registry is not None or provider_mod.configured():
+    if configured or state.registry is not None:
         try:
             tools = agent_mod.ChatAgent(state).tool_detail()
         except Exception:
             tools = []
     return {
         "configured": configured,
-        "provider": "groq",
+        "provider": provider_mod.PROVIDER_NAME,
         "model": provider_mod.DEFAULT_MODEL,
+        "fallback_models": provider_mod.FALLBACK_MODELS,
         "base_url": provider_mod.BASE_URL,
         "n_tools": len(tools),
         "tools": tools,
-        "detail": None if configured else (
-            "GROQ_API_KEY is not set. Add it to a .env file at the repository root as "
-            "GROQ_API_KEY=gsk_... and restart the backend."),
+        "detail": None if configured else provider_mod.KEY_HELP,
+    }
+
+
+@router.get("/models")
+def chat_models():
+    """Every model the configured key can address, and the order this provider
+    will try them in. The chat page shows the active one; this is how an
+    operator finds out what else is on the key."""
+    if not provider_mod.configured():
+        raise HTTPException(status_code=503, detail=provider_mod.KEY_HELP)
+    available = provider_mod.list_models()
+    return {
+        "configured_model": provider_mod.DEFAULT_MODEL,
+        "try_order": provider_mod.model_candidates(),
+        "available": available,
+        "configured_is_available": provider_mod.DEFAULT_MODEL in available,
     }
 
 

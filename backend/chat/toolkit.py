@@ -1,6 +1,6 @@
 """The tools the ProcessX agent can call.
 
-Two families:
+Three families:
 
 * **Database** — a schema description and one guarded read-only SELECT, for the
   long tail of questions nobody wrote an endpoint for.
@@ -8,6 +8,10 @@ Two families:
   dashboard renders: KPIs, the activity table, M2's ranking, M3's anomalies, the
   agent's investigation tree, M4's verdict, M5's counterfactuals, M6's ROI
   selection, and a case's journey through all 24 activities.
+* **The event bus** — the ordered stream of what actually happened, in the order
+  it happened. This is the difference between the analyst reconstructing a story
+  from summary tables and reading the trail the system left behind: "why did M6
+  pick that" is answerable from event ids rather than from inference.
 
 Answer quality comes from the shape of these tools, not from prompting around
 weak ones. Each returns compact JSON with units in the key names, so the model
@@ -19,6 +23,7 @@ import json
 
 from backend import analytics
 from backend.chat.tools import ToolRegistry, ToolResult
+from backend.events import CATALOGUE as EVENT_CATALOGUE, get_bus
 from backend.models import m5_impact as m5, m6_roi as m6
 from backend.sim import config as C, persist
 
@@ -569,5 +574,115 @@ def build_registry(state):
         {"type": "object", "properties": {
             "run_id": {"type": "string", "description": "Defaults to the current run."}}},
         compare_to_baseline_rule, category="agent")
+
+    # ----------------------------------------------------------- event bus --
+    # These read the pub/sub stream rather than the tables. The stream is
+    # ordered and causal, so it answers "what happened, then what happened
+    # next" -- which is exactly the question a summary table cannot answer.
+
+    def _event_row(e, wide=False):
+        row = {
+            "event_id": e.get("event_id"), "seq": e.get("seq"),
+            "type": e.get("type"), "module": e.get("module"),
+            "summary": e.get("summary"), "severity": e.get("severity"),
+        }
+        if e.get("case_id") is not None:
+            row["case_id"] = e["case_id"]
+        if wide:
+            row["payload"] = e.get("payload")
+        return row
+
+    def _csv(value):
+        return [p.strip() for p in str(value).split(",") if p.strip()] if value else None
+
+    def get_event_timeline(args):
+        run_id = args.get("run_id") or state.current_run_id()
+        events = get_bus().history(
+            run_id=run_id,
+            topics=_csv(args.get("topics")),
+            types=_csv(args.get("types")),
+            limit=max(1, min(int(args.get("limit") or 60), 400)))
+        case_id = args.get("case_id")
+        if case_id is not None:
+            events = [e for e in events if e.get("case_id") == int(case_id)]
+        return _json({
+            "run_id": run_id,
+            "n_events": len(events),
+            "events": [_event_row(e, wide=bool(args.get("include_payload")))
+                       for e in events],
+        }, note="Events are in publication order, oldest first. `seq` is a "
+                "monotonic counter, so a higher seq strictly happened later. Cite an "
+                "event by its `event_id` when the user asks how you know something.")
+
+    reg.register(
+        "get_event_timeline",
+        "The pub/sub event stream for a run, oldest first -- what the simulator, M1-M6, "
+        "the agent, the apply path and the analyst each published, in the order it "
+        "happened. Use this for 'what happened', 'walk me through it', 'in what order', "
+        "or any question where the sequence is the answer. Filter with `topics` "
+        "(simulation, model, agent, intervention, chat, system) or `types`.",
+        {"type": "object", "properties": {
+            "run_id": {"type": "string", "description": "Defaults to the current run."},
+            "case_id": {"type": "integer", "description": "Only events about this case."},
+            "topics": {"type": "string", "description": "Comma-separated topics to keep."},
+            "types": {"type": "string", "description": "Comma-separated exact event types."},
+            "include_payload": {"type": "boolean",
+                                "description": "Include each event's full payload. Off by default -- it is verbose."},
+            "limit": {"type": "integer", "description": "Most recent N. Default 60, max 400."}}},
+        get_event_timeline, category="events")
+
+    def get_agent_decision_trace(args):
+        run_id = args.get("run_id") or state.current_run_id()
+        events = get_bus().history(
+            run_id=run_id,
+            types=["model.m2.ranked", "model.m3.anomaly_detected", "model.m3.clear",
+                   "agent.investigation.started", "agent.probe.selected",
+                   "agent.evidence.recorded", "agent.investigation.concluded",
+                   "model.m4.cause_classified", "model.m5.counterfactual_completed",
+                   "model.m6.intervention_selected"],
+            limit=200)
+        if not events:
+            return ToolResult(
+                ok=False, content="",
+                error="No decision events on the bus for run '%s' yet. The chain "
+                      "publishes them while it runs -- call get_investigation first, "
+                      "then retry this." % run_id)
+        return _json({
+            "run_id": run_id,
+            "trace": [{"seq": e["seq"], "module": e["module"], "type": e["type"],
+                       "summary": e["summary"], "payload": e.get("payload"),
+                       "event_id": e["event_id"]}
+                      for e in events],
+        }, note="This is the causal chain behind the recommendation, in order: M2 "
+                "ranked, M3 flagged, the agent probed, M4 attributed, M5 re-simulated, "
+                "M6 bought. Answer 'why did it choose that' by walking these in "
+                "sequence and naming the module at each step.")
+
+    reg.register(
+        "get_agent_decision_trace",
+        "The causal chain behind the current recommendation, as published events: what "
+        "M2 ranked, what M3 flagged, every probe the agent selected and what it found, "
+        "M4's attribution, M5's counterfactuals and M6's purchase. Use this for 'why "
+        "did the agent choose this', 'how did it reach that conclusion', or 'show your "
+        "working'.",
+        {"type": "object", "properties": {
+            "run_id": {"type": "string", "description": "Defaults to the current run."}}},
+        get_agent_decision_trace, category="events")
+
+    def get_event_bus_status(_args):
+        return _json({
+            "bus": get_bus().stats(),
+            "publishable_types": sorted(EVENT_CATALOGUE),
+        }, note="The bus is publish/subscribe: a producer publishes and never learns "
+                "who is listening. Today's subscribers are the live dashboard, the "
+                "simulation replay, the audit trail and these tools.")
+
+    reg.register(
+        "get_event_bus_status",
+        "The event bus itself: which backend is running (in-process ring buffer or "
+        "Redis Streams), how many events have been published, how many subscribers are "
+        "live, and every event type the system can emit. Use this when asked about the "
+        "architecture or whether the platform is running live.",
+        _NO_ARGS, get_event_bus_status, category="events")
 
     return reg

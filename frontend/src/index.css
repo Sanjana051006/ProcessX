@@ -1,56 +1,107 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Geist+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  /* ------------------------------------------------------------------ tokens
+     A premium light system: a cool near-white ground, pure white surfaces that
+     lift off it with soft layered shadows, hairline borders at low alpha, and
+     one indigo accent that means "interactive". Every colour is an RGB triplet
+     so Tailwind's alpha utilities keep working through <alpha-value>. */
   :root {
-    /* Paper and ink. A warm cream ground with near-black type -- the whole
-       system is built on the contrast between those two and one red. */
-    --paper: 247 243 236;
-    --paper-soft: 241 236 227;
-    --paper-sink: 233 227 216;
-    --ink: 10 10 10;
-    --ink-mid: 75 70 65;
-    --ink-light: 122 114 104;
-    --ink-faint: 163 155 144;
-    --rule: 10 10 10;
-    --rule-soft: 10 10 10;
+    /* Surfaces, lightest to deepest. */
+    --bg: 246 247 250;
+    --bg-tint: 240 242 247;
+    --surface: 255 255 255;
+    --surface-2: 250 251 253;
+    --surface-3: 242 244 248;
 
-    --red: 214 40 40;
-    --red-soft: 226 122 108;
+    /* Ink, darkest to faintest. Four steps is enough; a fifth always ends up
+       indistinguishable from one of the others at 11px. */
+    --ink: 12 17 29;
+    --ink-2: 62 73 94;
+    --ink-3: 113 125 147;
+    --ink-4: 156 167 186;
 
-    /* Data bands: deep enough to hold their own against cream, spaced far
-       enough apart in lightness to survive greyscale. */
-    --green: 47 125 79;
-    --amber: 199 125 30;
-    --blue: 43 93 138;
-    --violet: 104 76 148;
+    /* Hairlines. Always used with an alpha. */
+    --line: 16 24 40;
 
-    --nav-h: 60px;
-    --nav-gap: 18px;
-    /* Everything below the floating capsule clears this. */
+    /* The one interactive accent. */
+    --accent: 79 70 229;
+    --accent-2: 99 91 255;
+    --accent-wash: 238 237 254;
+
+    /* Semantics. Deep and slightly desaturated so they hold their own on white
+       without vibrating, and separable in greyscale by lightness alone. */
+    --ok: 16 145 100;
+    --warn: 202 138 4;
+    --danger: 214 56 62;
+    --info: 37 99 235;
+    --violet: 139 92 246;
+
+    /* The five macro-stages. Fixed, so a macro-stage is the same colour on
+       every chart on every page. */
+    --c1: 37 99 235;
+    --c2: 16 145 100;
+    --c3: 214 56 62;
+    --c4: 202 138 4;
+    --c5: 139 92 246;
+
+    /* Back-compatible aliases. The chart components were written against these
+       names; keeping them means the palette moves in one place. */
+    --paper: var(--surface);
+    --paper-soft: var(--surface-2);
+    --paper-sink: var(--surface-3);
+    --ink-mid: var(--ink-2);
+    --ink-light: var(--ink-3);
+    --ink-faint: var(--ink-4);
+    --rule: var(--line);
+    --red: var(--danger);
+    --red-soft: 244 154 158;
+    --green: var(--ok);
+    --amber: var(--warn);
+    --blue: var(--info);
+
+    /* Elevation. Two shadows per level: a tight contact shadow that defines the
+       edge, and a wide soft one that gives the lift. */
+    --shadow-xs: 0 1px 2px rgb(16 24 40 / 0.05);
+    --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.05), 0 1px 3px rgb(16 24 40 / 0.06);
+    --shadow-md: 0 2px 4px -2px rgb(16 24 40 / 0.06), 0 8px 20px -6px rgb(16 24 40 / 0.10);
+    --shadow-lg: 0 4px 8px -4px rgb(16 24 40 / 0.06), 0 20px 44px -12px rgb(16 24 40 / 0.16);
+    --shadow-accent: 0 4px 14px -4px rgb(79 70 229 / 0.35);
+
+    --radius: 16px;
+
+    --nav-h: 56px;
+    --nav-gap: 14px;
+    /* Everything below the floating navbar clears this. */
     --nav-space: calc(var(--nav-h) + var(--nav-gap) * 2);
   }
 
   * {
-    border-color: rgb(var(--rule) / 0.12);
+    border-color: rgb(var(--line) / 0.09);
   }
 
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    scroll-behavior: smooth;
   }
 
   body {
-    @apply bg-paper text-ink font-sans antialiased;
+    @apply bg-bg text-ink font-sans antialiased;
     font-feature-settings: "cv11", "ss01";
+    /* A single very soft wash so the ground is not flat grey. It is barely
+       perceptible and that is the point -- it reads as depth, not as a
+       gradient. */
+    background-image:
+      radial-gradient(1200px 620px at 12% -8%, rgb(79 70 229 / 0.055), transparent 62%),
+      radial-gradient(1000px 560px at 96% 4%, rgb(37 99 235 / 0.045), transparent 60%);
+    background-attachment: fixed;
   }
 
-  /* Tabular figures everywhere a number is compared against another number.
-     Proportional digits make a column of metrics visibly ragged. */
+  /* Tabular figures everywhere a number is compared against another number. */
   .tnum,
   table,
   .metric {
@@ -58,76 +109,126 @@
   }
 
   ::selection {
-    @apply bg-ink text-paper;
+    background: rgb(var(--accent) / 0.16);
   }
 
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 9px;
+    height: 9px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgb(var(--ink) / 0.16);
-    border: 3px solid rgb(var(--paper));
+    background: rgb(var(--ink) / 0.14);
+    border: 2px solid transparent;
+    background-clip: content-box;
     border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgb(var(--ink) / 0.3);
+    background: rgb(var(--ink) / 0.26);
+    background-clip: content-box;
   }
 
   :focus-visible {
-    outline: 2px solid rgb(var(--red));
+    outline: 2px solid rgb(var(--accent));
     outline-offset: 2px;
+    border-radius: 6px;
   }
 }
 
 @layer components {
-  /* The reference's micro-label: mono, uppercase, wide tracking. It is the
-     system's only "small caps" device and it does a lot of work -- section
-     eyebrows, table headers, chart axes, tags. */
+  /* ---------------------------------------------------------------- surfaces
+     A card is white on the tinted ground with a hairline and a soft lift. The
+     depth comes from the shadow, never from a heavy border. */
+  .card {
+    @apply rounded-2xl border border-line/8 bg-surface;
+    box-shadow: var(--shadow-sm);
+  }
+  .card-flat {
+    @apply rounded-2xl border border-line/8 bg-surface-2;
+  }
+  .card-lift {
+    @apply rounded-2xl border border-line/8 bg-surface transition-shadow duration-300;
+    box-shadow: var(--shadow-md);
+  }
+  .card-lift:hover {
+    box-shadow: var(--shadow-lg);
+  }
+  .card-ink {
+    @apply rounded-2xl text-white;
+    background: linear-gradient(148deg, rgb(23 28 44), rgb(12 17 29) 58%);
+    box-shadow: var(--shadow-lg);
+  }
+  .card-accent {
+    @apply rounded-2xl border border-accent/18;
+    background: linear-gradient(150deg, rgb(var(--accent-wash)), rgb(var(--surface)) 72%);
+  }
+
+  /* Bento cell. The grid does the sizing; this only carries the look and the
+     internal box model, so a tile can be span-4 or span-8 with no restyling. */
+  .bento {
+    @apply card flex min-w-0 flex-col overflow-hidden p-4 sm:p-5;
+  }
+  .bento-head {
+    @apply mb-3 flex shrink-0 items-start justify-between gap-3;
+  }
+
+  /* ------------------------------------------------------------- typography */
   .eyebrow {
-    @apply font-mono text-label uppercase text-ink-light;
+    @apply font-mono text-label uppercase text-ink-3;
+  }
+  .title-xl {
+    @apply text-[clamp(1.9rem,3.6vw,2.9rem)] font-bold leading-[1.05] tracking-[-0.03em] text-ink;
+  }
+  .title-lg {
+    @apply text-[clamp(1.25rem,2.2vw,1.6rem)] font-bold leading-[1.12] tracking-[-0.025em] text-ink;
+  }
+  .title-md {
+    @apply text-[16px] font-semibold leading-tight tracking-[-0.015em] text-ink;
+  }
+  .lede {
+    @apply text-[14px] leading-[1.65] text-ink-3;
   }
 
-  .rule-t {
-    border-top: 2px solid rgb(var(--ink));
+  /* ------------------------------------------------------------------ chips */
+  .chip {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border
+           border-line/10 bg-surface px-2.5 py-1 font-mono text-[9.5px] uppercase
+           tracking-[0.14em] text-ink-3;
   }
-  .rule-b {
-    border-bottom: 1px solid rgb(var(--ink) / 0.14);
+  .chip-solid {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-ink
+           px-2.5 py-1 font-mono text-[9.5px] uppercase tracking-[0.14em] text-white;
   }
-
-  /* A panel is a hard-edged card: thin ink hairline, no rounding beyond a
-     whisper, no drop shadow. The lift comes from the paper tint, not from blur. */
-  .panel {
-    @apply bg-paper-soft/60 border border-ink/12 rounded-xl;
-  }
-  .panel-flat {
-    @apply bg-paper border border-ink/12 rounded-xl;
-  }
-
-  .tag {
-    @apply font-mono text-[9.5px] uppercase tracking-[0.18em] px-2 py-[3px]
-           border border-ink/20 rounded-full text-ink-mid whitespace-nowrap;
+  .chip-accent {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full
+           bg-accent-wash px-2.5 py-1 font-mono text-[9.5px] uppercase
+           tracking-[0.14em] text-accent;
   }
 
-  /* Pull quote, set in serif italic like the reference's act openers. */
-  .quote {
-    @apply font-serif italic text-ink-mid;
+  /* Segmented control: the run switcher, the macro filter, the panel tabs. */
+  .segmented {
+    @apply inline-flex items-center gap-0.5 rounded-full border border-line/8
+           bg-surface-3 p-0.5;
+  }
+  .segmented-item {
+    @apply rounded-full px-3 py-1.5 font-mono text-[9.5px] uppercase
+           tracking-[0.14em] text-ink-3 transition-all;
+  }
+  .segmented-item:hover {
+    @apply text-ink;
+  }
+  .segmented-item[data-active="true"] {
+    @apply bg-surface text-ink;
+    box-shadow: var(--shadow-xs);
   }
 
-  .link-underline {
-    @apply relative after:absolute after:left-0 after:-bottom-0.5 after:h-px
-           after:w-full after:origin-right after:scale-x-0 after:bg-current
-           after:transition-transform hover:after:origin-left hover:after:scale-x-100;
-  }
-
-  /* ---- Chat markdown --------------------------------------------------- */
+  /* ------------------------------------------------------------------ chat */
   /* Assistant replies render as full-width rich text, not in a bubble, so the
      typography has to carry the structure on its own. */
   .md {
-    @apply text-[15px] leading-[1.68] text-ink;
+    @apply text-[14.5px] leading-[1.7] text-ink-2;
   }
   .md > *:first-child {
     margin-top: 0;
@@ -148,20 +249,20 @@
   .md h2,
   .md h3,
   .md h4 {
-    @apply font-semibold tracking-[-0.02em] mt-6 mb-2 text-ink;
+    @apply mb-2 mt-5 font-semibold tracking-[-0.02em] text-ink;
   }
   .md h1 {
-    @apply text-[1.35rem];
+    @apply text-[1.3rem];
   }
   .md h2 {
-    @apply text-[1.15rem];
+    @apply text-[1.12rem];
   }
   .md h3 {
     @apply text-[1rem];
   }
   .md ul,
   .md ol {
-    @apply my-3 pl-5 space-y-1.5;
+    @apply my-3 space-y-1.5 pl-5;
   }
   .md ul {
     @apply list-disc;
@@ -170,69 +271,69 @@
     @apply list-decimal;
   }
   .md li::marker {
-    @apply text-ink-faint;
+    @apply text-ink-4;
   }
   .md blockquote {
-    @apply border-l-2 border-red pl-4 my-4 text-ink-mid;
+    @apply my-4 rounded-r-lg border-l-2 border-accent bg-accent-wash/60 py-2 pl-4 pr-3 text-ink-2;
   }
   .md a {
-    @apply text-red underline underline-offset-2 decoration-red/40 hover:decoration-red;
+    @apply text-accent underline decoration-accent/35 underline-offset-2 hover:decoration-accent;
   }
   .md hr {
-    @apply my-6 border-t border-ink/12;
+    @apply my-6 border-t border-line/10;
   }
   .md code {
-    @apply font-mono text-[0.85em] bg-paper-sink/70 border border-ink/10
-           rounded px-1.5 py-0.5;
+    @apply rounded-md border border-line/8 bg-surface-3 px-1.5 py-0.5 font-mono text-[0.85em] text-ink;
   }
   .md pre {
-    @apply my-4 overflow-x-auto bg-ink text-paper rounded-lg p-4 text-[12.5px] leading-relaxed;
+    @apply my-4 overflow-x-auto rounded-xl p-4 text-[12.5px] leading-relaxed text-slate-100;
+    background: rgb(17 22 36);
   }
   .md pre code {
-    @apply bg-transparent border-0 p-0 text-inherit font-mono;
+    @apply border-0 bg-transparent p-0 font-mono text-inherit;
   }
   /* A wide table must scroll inside itself rather than pushing the page. */
   .md .table-scroll {
-    @apply my-4 overflow-x-auto border border-ink/14 rounded-lg;
+    @apply my-4 overflow-x-auto rounded-xl border border-line/10;
   }
   .md table {
-    @apply w-full border-collapse text-[13.5px];
+    @apply w-full border-collapse text-[13px];
   }
   .md thead th {
-    @apply font-mono text-label uppercase text-ink-light text-left
-           px-3 py-2.5 bg-paper-sink/50 border-b border-ink/14 whitespace-nowrap;
+    @apply whitespace-nowrap border-b border-line/10 bg-surface-3 px-3 py-2.5 text-left
+           font-mono text-label uppercase text-ink-3;
   }
   .md tbody td {
-    @apply px-3 py-2 border-b border-ink/8 align-top;
+    @apply border-b border-line/6 px-3 py-2 align-top;
   }
   .md tbody tr:last-child td {
     @apply border-b-0;
   }
   .md tbody tr:hover {
-    @apply bg-paper-sink/30;
+    @apply bg-surface-3/60;
   }
 
-  /* highlight.js, restyled onto the ink code block. */
+  /* highlight.js, restyled onto the dark code block. */
   .md .hljs-keyword,
   .md .hljs-selector-tag,
   .md .hljs-built_in {
-    color: #f0a3a3;
+    color: #c4b5fd;
   }
   .md .hljs-string,
   .md .hljs-attr {
-    color: #a7d3a7;
+    color: #86efac;
   }
   .md .hljs-number,
   .md .hljs-literal {
-    color: #e6c07b;
+    color: #fcd34d;
   }
   .md .hljs-comment {
-    color: #7d7d7d;
+    color: #94a3b8;
     font-style: italic;
   }
   .md .hljs-title,
   .md .hljs-function {
-    color: #9dc4e8;
+    color: #7dd3fc;
   }
 }
 
@@ -240,19 +341,48 @@
   /* Fades the top edge of a scroll region so content dissolves at its boundary
      instead of colliding with the floating navbar. */
   .mask-top {
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 26px);
-    mask-image: linear-gradient(to bottom, transparent 0, #000 26px);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
   }
-  .grain {
-    position: relative;
+  .mask-b {
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%);
   }
-  .grain::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.5;
-    background-image: radial-gradient(rgb(var(--ink) / 0.055) 1px, transparent 1px);
-    background-size: 4px 4px;
+  .no-bar {
+    scrollbar-width: none;
+  }
+  .no-bar::-webkit-scrollbar {
+    display: none;
+  }
+  /* Two clamps, used wherever a fixed-height tile has to swallow variable copy
+     without ever pushing its box taller. */
+  .clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .clamp-4 {
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .clamp-6 {
+    display: -webkit-box;
+    -webkit-line-clamp: 6;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .glass {
+    background: rgb(255 255 255 / 0.72);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
   }
 }

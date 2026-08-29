@@ -21,6 +21,7 @@ import json
 import time
 
 from backend.agent import policy, probes as probe_mod
+from backend.events import publishers as pub
 from backend.jsonsafe import clean
 from backend.agent.state import Evidence, Node, ProcessState, StageHealth
 from backend.models import m5_impact as m5, m6_roi as m6
@@ -65,6 +66,8 @@ def investigate(result, registry, run_id, inv_id=None, budget=C.BUDGET_CAP,
     )
 
     trigger = sorted(ctx.anomalies.items(), key=lambda kv: -kv[1]["share"])
+    pub.investigation_started(
+        run_id, inv_id, [{"stage": s, **v} for s, v in trigger], budget)
     seq = 0
     stop_reason = "probe budget exhausted"
 
@@ -121,10 +124,16 @@ def investigate(result, registry, run_id, inv_id=None, budget=C.BUDGET_CAP,
         if candidate["probe_type"] == "stage":
             state.stage_node_ids[candidate["stage"]] = node_id
 
+        # The tree is built here, so this is where the agent's reasoning becomes
+        # observable. Two events per node: the decision to spend a probe, then
+        # what that probe found -- which is the pair the timeline renders as
+        # "chose X because ..., then learned Y".
+        pub.probe_selected(run_id, inv_id, node)
         state.record(node,
                      Evidence(candidate["probe_type"], candidate["target"],
                               candidate["stage"], data, summary),
                      hypotheses if candidate["probe_type"] == "stage" else None)
+        pub.evidence_recorded(run_id, inv_id, node)
         seq += 1
     else:
         stop_reason = "probe budget exhausted"
@@ -155,6 +164,8 @@ def investigate(result, registry, run_id, inv_id=None, budget=C.BUDGET_CAP,
     else:
         conclusion["explanation"] = (
             "No stage cleared the %.2f confidence bar." % policy.CONFIDENCE_THRESHOLD)
+
+    pub.investigation_concluded(run_id, inv_id, conclusion)
 
     if persist_result:
         _persist(conclusion, state, candidates, conn)

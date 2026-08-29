@@ -11,11 +11,13 @@ agent can read the tree the dashboard is showing.
 
 import re
 import sqlite3
+import time
 
 import numpy as np
 
 from backend import db
 from backend.agent import controller, policy
+from backend.events import publishers as pub
 from backend.jsonsafe import clean, finite
 from backend.models import features
 from backend.sim import config as C, costs, engine, scenarios
@@ -838,25 +840,51 @@ def pipeline(state, run_id=None, case_id=None, refresh=False):
     if not refresh and key in _PIPELINE_CACHE:
         return _PIPELINE_CACHE[key]
 
+    started = time.time()
+    pub.pipeline_started(run_id, case_id)
+
     reg = state.models()
     result = state.run_result(run_id)
     journey = case_journey(state, run_id, case_id)
     ov = overview(state, run_id)
     table = stage_table(state, run_id)
 
-    outcome = investigation(state, run_id, refresh=refresh)
+    # The case walks its 24 activities on the bus before any model speaks, so
+    # the timeline reads in the order the world actually happened rather than in
+    # the order the panels were computed.
+    pub.case_sampled(run_id, journey)
+    pub.stage_walk(run_id, journey)
 
-    steps = [
-        _step_world(state, run_id, journey, ov),
-        _step_m1(state, reg, run_id, journey),
-        _step_m2(state, reg, run_id, table),
-        _step_m3(state, reg, run_id),
-        _step_agent(outcome),
-        _step_m4(reg, outcome),
-        _step_m5(outcome),
-        _step_m6(outcome),
-        _step_outcome(state, run_id, outcome),
-    ]
+    # Published in causal order, not in convenient order. M1's residual is what
+    # M2 ranks on, M2's ranking and M3's flags are what the agent opens against,
+    # and M4/M5/M6 only exist once it has concluded -- so the three detectors
+    # have to reach the bus before the investigation starts, or the decision
+    # trace reads as though the agent acted on evidence it did not yet have.
+    step_world = _step_world(state, run_id, journey, ov)
+    step_m1 = _step_m1(state, reg, run_id, journey)
+    pub.m1_predicted(run_id, case_id, step_m1)
+    step_m2 = _step_m2(state, reg, run_id, table)
+    pub.m2_ranked(run_id, step_m2)
+    step_m3 = _step_m3(state, reg, run_id)
+    pub.m3_anomaly(run_id, step_m3)
+
+    outcome = investigation(state, run_id, refresh=refresh)
+    inv_id = outcome["conclusion"]["inv_id"]
+
+    step_agent = _step_agent(outcome)
+    step_m4 = _step_m4(reg, outcome)
+    pub.m4_classified(run_id, step_m4, inv_id)
+    step_m5 = _step_m5(outcome)
+    pub.m5_counterfactuals(run_id, step_m5, inv_id)
+    step_m6 = _step_m6(outcome)
+    pub.m6_selected(run_id, step_m6, inv_id)
+    step_outcome = _step_outcome(state, run_id, outcome)
+    if step_outcome.get("delta"):
+        pub.intervention_measured(run_id, step_outcome["before"],
+                                  step_outcome["after"], step_outcome["delta"])
+
+    steps = [step_world, step_m1, step_m2, step_m3, step_agent,
+             step_m4, step_m5, step_m6, step_outcome]
     payload = clean({
         "run_id": run_id,
         "label": row["label"],
@@ -866,6 +894,7 @@ def pipeline(state, run_id=None, case_id=None, refresh=False):
         "steps": steps,
     })
     _PIPELINE_CACHE[key] = payload
+    pub.pipeline_completed(run_id, case_id, inv_id, time.time() - started)
     return payload
 
 

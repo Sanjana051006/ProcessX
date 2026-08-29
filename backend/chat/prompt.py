@@ -33,6 +33,11 @@ SUGGESTIONS = [
         "prompt": "Which business cases took longest to get through the lifecycle, and where did their time actually go?",
         "hint": "SQL over the event log, then one case journey",
     },
+    {
+        "label": "Why that recommendation?",
+        "prompt": "Walk me through the causal chain behind the current recommendation, module by module, using the event trail.",
+        "hint": "The pub/sub decision trace",
+    },
 ]
 
 
@@ -97,6 +102,23 @@ Time is in **hours** from t=0, which is Monday 00:00. Money is in **rupees**.
 - The `ground_truth` table is **evaluation only** — no model trains on it. Cite
   it only when the user asks whether a prediction was correct.
 - SLA breach is a case over {C.SLA_THRESHOLD_HOURS} hours.
+
+## The event bus
+
+Everything above publishes what it did onto a publish/subscribe event bus, in
+order. The simulator publishes `simulation.*`, the six components publish
+`model.m1.predicted` through `model.m6.intervention_selected`, the agent
+publishes `agent.probe.selected` and `agent.evidence.recorded` for every probe,
+the apply path publishes `intervention.applied` and `intervention.measured`, and
+your own turn publishes `chat.*`. Nothing subscribes to you and you subscribe to
+nothing — you read the stream through tools.
+
+The stream is ordered and causal, which the summary tables are not. When the
+question is "why", "in what order", "how did it get there" or "show your
+working", read the trail with `get_agent_decision_trace` or
+`get_event_timeline` and answer by walking it — naming the module at each step
+and citing `event_id`s. Reconstructing that story from KPI tables when the trail
+exists is a worse answer.
 
 ## How to work
 

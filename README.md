@@ -7,6 +7,11 @@ world; six components (M1–M6) predict process times, rank bottlenecks, detect
 anomalies, classify causes, simulate interventions and pick the best one under
 a budget; an agent loop drives them and re-plans after a fix.
 
+Every one of those steps publishes to a **publish/subscribe event bus** as it
+happens, and the dashboard, the simulation replay and the chat analyst all
+subscribe to the same stream — so the platform is live and its decisions are
+replayable rather than reconstructed after the fact.
+
 Docs: [ProcessX v2](docs/ProcessX_v2.md).
 
 ---
@@ -95,6 +100,67 @@ database (~2 s) when you only need data.
 **Run every Python command from the repository root**, not from `backend/` —
 the modules import as `backend.sim.engine`, `backend.models.registry` and so
 on, which needs the root on `sys.path`.
+
+---
+
+## Configuration
+
+A `.env` at the repository root. Real environment variables win over it.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `OPENCODE_API_KEY` | — | OpenCode Zen key for the chat analyst. Without it the chat page says so and every other page works normally. |
+| `OPENCODE_MODEL` | `hy3-free` | The model to serve chat turns. |
+| `OPENCODE_FALLBACK_MODELS` | `hy3-free,big-pickle,mimo-v2.5-free` | Tried in order when the configured model's upstream is unavailable. |
+| `PROCESSX_BUS` | `memory` | `memory` (in-process ring buffer) or `redis` (Redis Streams). |
+| `REDIS_URL` | — | Broker URL when `PROCESSX_BUS=redis`. |
+
+**On the model.** OpenCode Zen is a gateway in front of many upstream
+providers, and an individual model can be listed under `/models` while its
+upstream is briefly returning 404 / "Model is unavailable" — a failure of that
+route, not of the key or the request. The provider therefore keeps an ordered
+list and moves down it; `GET /api/chat/health` reports what is configured and
+each answer reports the model that actually served it. A free-tier key can
+address the `*-free` routes and `big-pickle`; everything else needs a payment
+method on the workspace.
+
+**On the bus.** `memory` is the default and needs nothing installed — a bounded
+ring buffer plus one queue per live subscriber, replayable for the life of the
+process. `redis` puts the same stream on Redis Streams (`pip install redis`),
+which makes it durable and shared across processes. Streams rather than plain
+Redis Pub/Sub deliberately: plain Pub/Sub is at-most-once, so an event
+published while the dashboard is reconnecting is simply gone, and replay is the
+feature the bus exists for. A Redis that will not connect degrades to memory
+rather than taking the API down.
+
+---
+
+## The event bus
+
+    simulator / M1-M6 / agent / apply / analyst
+                    publish
+                      |
+              ProcessX event bus
+              /       |        \
+      dashboard   replay    audit + chat tools
+
+Producers publish and never learn who is listening, so adding a consumer costs
+nothing on the producing side. Six topics — `simulation`, `model`, `agent`,
+`intervention`, `chat`, `system` — and events are published in **causal** order:
+M1's residual, then M2's ranking, then M3's flags, then the agent opening
+against them, then M4, M5, M6 and the measured outcome.
+
+| Endpoint | What it is |
+|---|---|
+| `GET /api/events/stream` | The live tap, as SSE. `run_id`, `topics`, `types` filter it; `replay=N` back-fills before going live. |
+| `GET /api/events` | The replay buffer, for a timeline or an audit list. |
+| `GET /api/events/stats` | Backend, counters, live subscriber count. |
+| `GET /api/events/catalogue` | Every type the system can publish. |
+
+The chat analyst reads the same stream through three tools —
+`get_event_timeline`, `get_agent_decision_trace` and `get_event_bus_status` —
+so "why did the agent choose that" is answered by walking a recorded trail and
+citing event ids, rather than by inferring a story from summary tables.
 
 ---
 
@@ -200,6 +266,18 @@ backend/
     routes_read.py       stages/health (incl. map), ranking, model metrics
     routes_agent.py      investigate, investigation, tree, interventions
     routes_actions.py    apply, baseline/compare
+    routes_dashboard.py  the shapes the UI renders: overview, stages, pipeline
+    routes_chat.py       the analyst's SSE turn endpoint, health, models
+    routes_events.py     the event bus: SSE stream, replay, stats, catalogue
+  events/
+    schema.py            the envelope and the catalogue of publishable types
+    bus.py               MemoryBus / RedisBus behind one publish-subscribe API
+    publishers.py        one named function per domain event -- never raises
+  chat/
+    provider.py          OpenCode Zen, streaming + tool calls, model fallback
+    toolkit.py           the 21 tools, incl. three over the event bus
+    agent.py             the model -> tools -> model loop
+    prompt.py            the system prompt and the starter questions
   agent/
     state.py             ProcessState -- health, evidence, hypotheses, budget
     probes.py            stage probe, factor probe, expected information gain
@@ -215,7 +293,13 @@ backend/
     m6_roi.py            benefit model + greedy budget selection
     registry.py          train-all, persist, the four metric cards
   scripts/               bootstrap, the backend-only demo, the curl walkthrough
-frontend/src/            React 19, no router, no state library, no chart library
+frontend/src/
+  App.jsx                run selection + the one shared event-bus subscription
+  pages/Dashboard.jsx    bento grid over a pinned 24-activity rail
+  pages/Simulation.jsx   locked-viewport nine-panel walkthrough (never scrolls)
+  pages/Chat.jsx         the analyst
+  components/            rail, tables, bento primitives, event feed, charts
+  lib/useEvents.js       the SSE subscription hook
 docs/                    ProcessX v2 spec
 ```
 
@@ -257,6 +341,22 @@ that is what `frontend/src/api.js` targets and what the CORS allow-list in
 
 **`npm install` fails on the Node version**
 Vite 8 needs Node 20.19+ or 22.12+. Check with `node --version`.
+
+**Chat says a model is unavailable, or answers come from a different model than
+`OPENCODE_MODEL`**
+Expected, and handled. The gateway's upstream for a given model can be down
+while the model is still listed; the provider falls through to
+`OPENCODE_FALLBACK_MODELS` and each answer footer names the model that actually
+served it. `GET /api/chat/models` lists everything the key can address.
+
+**Chat returns 401 with "No payment method"**
+The model is a paid route and the key is free-tier. Set `OPENCODE_MODEL` to a
+`*-free` route or `big-pickle`.
+
+**The "Live" bus indicator says Offline**
+The backend is not running, or `GET /api/events/stream` is being buffered by a
+proxy in front of it. The endpoint already sends `X-Accel-Buffering: no`; any
+other proxy in the path needs response buffering disabled for SSE.
 
 **The four metric numbers differ from the ones above**
 Almost always a dependency-version drift. Confirm the venv is active and

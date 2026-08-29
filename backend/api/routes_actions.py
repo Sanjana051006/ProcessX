@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from backend import analytics, db
 from backend.agent import controller
 from backend.api.deps import get_state
+from backend.events import publishers as pub
 from backend.jsonsafe import clean
 from backend.sim import config as C, costs, persist
 
@@ -58,23 +59,29 @@ def apply_intervention(int_id: str, apply_selected: bool = False):
     for c in chosen:
         persist.mark_applied(c["int_id"], conn=conn)
 
+    applied = [
+        {"int_id": c["int_id"], "action": c["action"], "stage": c["stage"],
+         "cost": float(c["cost"]),
+         "label": C.CATALOGUE.get(c["action"], {}).get("label", c["action"])}
+        for c in chosen
+    ]
+    total_cost = float(sum(c["cost"] for c in chosen))
+    delta = {
+        "mean_cycle_hours": before["mean_cycle_hours"] - after["mean_cycle_hours"],
+        "cost_per_case": before["cost_per_case"] - after["cost_per_case"],
+        "sla_breach_rate": before["sla_breach_rate"] - after["sla_breach_rate"],
+    }
+    pub.intervention_applied(parent_run_id, child_run_id, applied, total_cost)
+    pub.intervention_measured(child_run_id, before, after, delta)
+
     return clean({
-        "applied": [
-            {"int_id": c["int_id"], "action": c["action"], "stage": c["stage"],
-             "cost": float(c["cost"]),
-             "label": C.CATALOGUE.get(c["action"], {}).get("label", c["action"])}
-            for c in chosen
-        ],
-        "total_cost": float(sum(c["cost"] for c in chosen)),
+        "applied": applied,
+        "total_cost": total_cost,
         "parent_run_id": parent_run_id,
         "child_run_id": child_run_id,
         "before": before,
         "after": after,
-        "delta": {
-            "mean_cycle_hours": before["mean_cycle_hours"] - after["mean_cycle_hours"],
-            "cost_per_case": before["cost_per_case"] - after["cost_per_case"],
-            "sla_breach_rate": before["sla_breach_rate"] - after["sla_breach_rate"],
-        },
+        "delta": delta,
         "note": "Models refreshed. POST /api/agent/investigate to re-plan.",
     })
 

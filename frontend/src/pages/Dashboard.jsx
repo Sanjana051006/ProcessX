@@ -4,34 +4,54 @@ import {
   getMacro,
   getModelMetrics,
   getOverview,
+  getPipeline,
   getScenarios,
   getStages,
   injectScenario,
   resetRuns,
 } from "../api.js";
+import ActivityRail from "../components/ActivityRail.jsx";
+import EventFeed from "../components/EventFeed.jsx";
+import StageTable from "../components/StageTable.jsx";
 import AnomalyStrip from "../components/charts/AnomalyStrip.jsx";
 import RankBars from "../components/charts/RankBars.jsx";
 import ShareBar from "../components/charts/ShareBar.jsx";
-import ProcessRail from "../components/ProcessRail.jsx";
-import StageTable from "../components/StageTable.jsx";
 import {
+  Bento,
   Button,
   ErrorNote,
   Eyebrow,
+  LiveDot,
   Metric,
-  Section,
+  Segmented,
   Skeleton,
-  StatCard,
+  StatTile,
+  Tile,
 } from "../components/ui.jsx";
 import { hours, int, money, num, pct, pretty } from "../lib/format.js";
 import { useRun } from "../lib/runContext.js";
 import { useAsync } from "../lib/useAsync.js";
-import { getPipeline } from "../api.js";
 
-export default function Dashboard() {
+/**
+ * The dashboard.
+ *
+ * Laid out as a bento grid over a **pinned process rail**. That structure is
+ * the whole redesign: previously the rail was one section among several, so
+ * selecting an activity in the ranking or the table highlighted it on a rail
+ * that had already scrolled out of view and the selection read as a no-op. Here
+ * the rail is `sticky` directly under the navbar, so all 24 activities are on
+ * screen for every interaction on the page and a selection made anywhere is
+ * immediately visible in the context of the whole lifecycle.
+ *
+ * Everything else is a consequence. Tiles are sized by importance rather than
+ * uniformly; the activity table scrolls inside its own tile instead of making
+ * the page four screens tall; and the live event feed sits beside the table so
+ * the bus is visible without a dedicated page.
+ */
+export default function Dashboard({ bus }) {
   const { runId, runs, setRunId, refresh } = useRun();
   const [selected, setSelected] = useState(null);
-  const [macroFilter, setMacroFilter] = useState(null);
+  const [macroFilter, setMacroFilter] = useState("all");
   const [busy, setBusy] = useState(false);
 
   const overview = useAsync(() => getOverview(runId), [runId], { skip: !runId });
@@ -41,8 +61,10 @@ export default function Dashboard() {
   const scenarios = useAsync(() => getScenarios(), []);
   // The anomaly strip needs M3's timeline, which comes with the pipeline. It is
   // the one expensive fetch on this page, so it is fired alongside the rest
-  // rather than blocking them — the panel fills in when it lands.
+  // rather than blocking them — the tile fills in when it lands.
   const pipeline = useAsync(() => getPipeline(runId), [runId], { skip: !runId });
+
+  const toggle = (s) => setSelected((cur) => (cur === s ? null : s));
 
   async function inject(scenario) {
     setBusy(true);
@@ -78,356 +100,361 @@ export default function Dashboard() {
   const k = ov?.kpis;
   const pk = ov?.parent_kpis;
   const m3 = pipeline.data?.steps?.[3];
+  const ranked = stages.data
+    ? [...stages.data.stages].sort((a, b) => a.rank - b.rank)
+    : [];
 
   return (
     <Shell>
-      {/* ---------------------------------------------------------- hero -- */}
-      <header className="pb-10 pt-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <Eyebrow>Act I · The world</Eyebrow>
-          <span className="h-px flex-1 bg-ink/14" />
-          <span className="tag">Seed 42 · reproducible</span>
-        </div>
+      {/* ------------------------------------------------------------ hero -- */}
+      <header className="pb-5">
+        <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+          <div className="min-w-0">
+            <Eyebrow>Process intelligence · seed 42 · reproducible</Eyebrow>
+            <h1 className="title-xl mt-2.5">
+              {ov?.label ?? "Loading the world"}
+            </h1>
+            <p className="lede mt-2 max-w-xl">
+              A discrete-event simulator generates the world. Six components predict,
+              rank, detect, diagnose, simulate and price it. An agent drives them, and
+              every step lands on a live event bus.
+            </p>
+          </div>
 
-        <h1 className="mt-6 text-display font-black uppercase">
-          Process
-          <br />
-          intelligence.
-        </h1>
-
-        <div className="mt-6 grid gap-8 lg:grid-cols-[1.15fr_1fr]">
-          <p className="quote max-w-xl text-[17px] leading-relaxed">
-            “A discrete-event simulator generates the world. Six components predict,
-            rank, detect, diagnose, simulate and price. An agent drives them — and
-            re-plans after the fix.”
-          </p>
-
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-4 self-end sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
-            <Fact label="01 / World" value={ov?.label ?? "—"} sub={ov?.run_id} />
+          <dl className="grid shrink-0 grid-cols-2 gap-x-7 gap-y-3 sm:grid-cols-4">
+            <Fact label="World" value={ov?.run_id ?? "—"} sub={ov?.scenario} />
             <Fact
-              label="02 / Scale"
+              label="Scale"
               value={ov ? int(k.n_cases) : "—"}
               sub={ov ? `${int(ov.n_events)} events` : ""}
             />
             <Fact
-              label="03 / Shape"
+              label="Shape"
               value={ov ? `${ov.n_activities} activities` : "—"}
               sub={ov ? `${ov.n_macro_stages} macro-stages` : ""}
             />
             <Fact
-              label="04 / Horizon"
+              label="Horizon"
               value={ov ? `${ov.horizon_days} days` : "—"}
               sub={`SLA ${ov?.sla_threshold_hours ?? 30} h`}
             />
           </dl>
         </div>
+
+        {/* World switcher and the fault injector. */}
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <span className="eyebrow mr-1">World</span>
+          <Segmented
+            items={runs.map((r) => ({ value: r.run_id, label: r.run_id, title: r.label }))}
+            value={runId}
+            onChange={setRunId}
+          />
+          <span className="ml-auto flex flex-wrap items-center gap-1.5">
+            <span className="eyebrow">Inject a fault</span>
+            {(scenarios.data?.scenarios ?? [])
+              .filter((s) => s.scenario !== "healthy")
+              .map((s) => (
+                <Button
+                  key={s.scenario}
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => inject(s.scenario)}
+                  title={`${pretty(s.bottleneck_stage)} — ${pretty(s.true_cause)}`}
+                >
+                  {s.scenario}
+                </Button>
+              ))}
+            <Button variant="ghost" size="sm" disabled={busy} onClick={reset}>
+              Reset
+            </Button>
+          </span>
+        </div>
       </header>
 
-      {/* ------------------------------------------------------ scenarios -- */}
-      <div className="rule-t flex flex-wrap items-center gap-2 py-4">
-        <span className="eyebrow mr-1">World</span>
-        {runs.map((r) => (
-          <button
-            key={r.run_id}
-            onClick={() => setRunId(r.run_id)}
-            className={`rounded-full border px-3 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.16em]
-                        transition-colors ${
-                          r.run_id === runId
-                            ? "border-ink bg-ink text-paper"
-                            : "border-ink/18 text-ink-mid hover:border-ink/40 hover:text-ink"
-                        }`}
-          >
-            {r.run_id}
-          </button>
-        ))}
-
-        <span className="ml-auto flex flex-wrap items-center gap-2">
-          <span className="eyebrow">Inject</span>
-          {(scenarios.data?.scenarios ?? [])
-            .filter((s) => s.scenario !== "healthy")
-            .map((s) => (
-              <Button
-                key={s.scenario}
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => inject(s.scenario)}
-                title={`${pretty(s.bottleneck_stage)} — ${pretty(s.true_cause)}`}
-              >
-                {s.scenario}
-              </Button>
-            ))}
-          <Button variant="ghost" size="sm" disabled={busy} onClick={reset}>
-            Reset
-          </Button>
-        </span>
+      {/* ------------------------------------------------------ the rail --- */}
+      {/* Pinned. Everything below scrolls past it; it never leaves the screen,
+          which is what makes a selection made anywhere on this page legible. */}
+      <div
+        className="sticky z-30 -mx-1 px-1 pb-3 pt-1"
+        style={{ top: "calc(var(--nav-space) - 6px)" }}
+      >
+        <div className="glass card overflow-hidden p-3 shadow-card sm:p-4">
+          {stages.data && macro.data ? (
+            <ActivityRail
+              stages={stages.data.stages}
+              macroStages={macro.data.macro_stages}
+              selected={selected}
+              onSelect={toggle}
+            />
+          ) : (
+            <Skeleton className="h-[104px]" />
+          )}
+        </div>
       </div>
 
-      {/* ------------------------------------------------------------ KPI -- */}
-      <Section eyebrow="Act II · The numbers" index={2} title="Where the week landed"
-               lede="Every figure is measured against the world this one came from, not against an abstract target. A delta here is the intervention or the fault — never sampling noise.">
+      {/* ----------------------------------------------------------- bento -- */}
+      <Bento>
+        {/* Row 1 — the four numbers the week is judged on. */}
         {!ov ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[132px]" />)}
-          </div>
+          [0, 1, 2, 3].map((i) => (
+            <div key={i} className="col-span-1 sm:col-span-3 lg:col-span-3">
+              <Skeleton className="h-[132px]" />
+            </div>
+          ))
         ) : (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard
-                label="Mean cycle time"
-                value={num(k.mean_cycle_hours)}
-                unit="hours"
-                delta={pk ? k.mean_cycle_hours - pk.mean_cycle_hours : null}
-                deltaLabel={pk ? `${num(Math.abs(k.mean_cycle_hours - pk.mean_cycle_hours))} h vs ${ov.parent_run_id}` : "no parent world"}
-                invert
-              />
-              <StatCard
-                label="Cost per case"
-                value={money(k.cost_per_case)}
-                delta={pk ? k.cost_per_case - pk.cost_per_case : null}
-                deltaLabel={pk ? `${money(Math.abs(k.cost_per_case - pk.cost_per_case))}` : "—"}
-                invert
-                hint="holding + SLA penalty"
-              />
-              <StatCard
-                label="SLA breach rate"
-                value={pct(k.sla_breach_rate, 2)}
-                delta={pk ? k.sla_breach_rate - pk.sla_breach_rate : null}
-                deltaLabel={pk ? `${pct(Math.abs(k.sla_breach_rate - pk.sla_breach_rate), 2)}` : "—"}
-                invert
-                hint={`over ${ov.sla_threshold_hours} h`}
-              />
-              <StatCard
-                label="Worst activity"
-                value={pretty(ov.worst_activity.stage)}
-                deltaLabel={`${num(ov.worst_activity.contribution_pct, 1)}% of delay`}
-                hint={`util ${num(ov.worst_activity.utilisation)}`}
-                accent={ov.worst_activity.health === "red"}
-              />
-            </div>
-
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <div className="panel p-4 sm:col-span-2">
-                <p className="eyebrow mb-3">Where a case spends its lifecycle</p>
-                {macro.data ? (
-                  <ShareBar rows={macro.data.macro_stages} />
-                ) : (
-                  <Skeleton className="h-[110px]" />
-                )}
-              </div>
-              <div className="panel grid grid-cols-2 gap-4 p-4">
-                <Metric label="p90 cycle" value={hours(k.p90_cycle_hours)}
-                        hint="the slow tail, not the average" />
-                <Metric label="Throughput" value={`${num(k.throughput_per_day, 0)}`}
-                        hint="cases per day" />
-                <Metric label="Flagged" value={`${ov.n_anomalous}`}
-                        tone={ov.n_anomalous ? "text-red" : undefined}
-                        hint="activities tripping M3" />
-                <Metric label="Budget" value={money(ov.budget_cap, true)}
-                        hint="cap on the action set" />
-              </div>
-            </div>
+            <StatTile
+              label="Mean cycle time"
+              value={num(k.mean_cycle_hours)}
+              unit="hours"
+              delta={pk ? k.mean_cycle_hours - pk.mean_cycle_hours : null}
+              deltaLabel={
+                pk
+                  ? `${num(Math.abs(k.mean_cycle_hours - pk.mean_cycle_hours))} h vs ${ov.parent_run_id}`
+                  : "no parent world"
+              }
+              invert
+            />
+            <StatTile
+              label="Cost per case"
+              value={money(k.cost_per_case)}
+              delta={pk ? k.cost_per_case - pk.cost_per_case : null}
+              deltaLabel={pk ? money(Math.abs(k.cost_per_case - pk.cost_per_case)) : "—"}
+              invert
+              hint="holding + SLA"
+            />
+            <StatTile
+              label="SLA breach rate"
+              value={pct(k.sla_breach_rate, 2)}
+              delta={pk ? k.sla_breach_rate - pk.sla_breach_rate : null}
+              deltaLabel={pk ? pct(Math.abs(k.sla_breach_rate - pk.sla_breach_rate), 2) : "—"}
+              invert
+              hint={`over ${ov.sla_threshold_hours} h`}
+            />
+            <StatTile
+              label="Worst activity"
+              value={pretty(ov.worst_activity.stage)}
+              deltaLabel={`${num(ov.worst_activity.contribution_pct, 1)}% of delay`}
+              hint={`util ${num(ov.worst_activity.utilisation)}`}
+              accent
+            />
           </>
         )}
-      </Section>
 
-      {/* ------------------------------------------------------ the rail --- */}
-      <Section
-        eyebrow="Act III · The map"
-        index={3}
-        title="Twenty-four activities, in order"
-        lede="Every business case walks all of them, exactly once. Bar height is the activity's share of total delay; colour is its health against the world before this one."
-        className="mt-14"
-      >
-        {stages.data && macro.data ? (
-          <ProcessRail
-            stages={stages.data.stages}
-            macroStages={macro.data.macro_stages}
-            selected={selected}
-            onSelect={(s) => setSelected(s === selected ? null : s)}
-          />
-        ) : (
-          <Skeleton className="h-[130px]" />
-        )}
-      </Section>
+        {/* Row 2 — where the time goes, and the secondary vitals. */}
+        <Tile
+          span={8}
+          spanSm={6}
+          title="Where a case spends its lifecycle"
+          meta="share of mean cycle time, by macro-stage"
+        >
+          {macro.data ? (
+            <ShareBar rows={macro.data.macro_stages} />
+          ) : (
+            <Skeleton className="h-[110px]" />
+          )}
+        </Tile>
 
-      {/* ------------------------------------------------- ranking + M3 ---- */}
-      <Section
-        eyebrow="Act IV · The constraint"
-        index={4}
-        title="What is holding it up"
-        lede="M2 scores every activity on three things it can be guilty of — holding the queue, running hot, and taking longer than M1 can explain. M3 watches the same activities hour by hour against the healthy baseline."
-        className="mt-14"
-      >
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-          <div className="panel p-4">
-            <div className="mb-3 flex items-baseline justify-between gap-2">
-              <p className="eyebrow">M2 · bottleneck ranking</p>
-              <p className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-faint">
-                top 10 of 24
+        <Tile span={4} spanSm={6} title="Vitals">
+          {ov ? (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+              <Metric label="p90 cycle" value={hours(k.p90_cycle_hours)} hint="the slow tail" />
+              <Metric label="Throughput" value={num(k.throughput_per_day, 0)} hint="cases / day" />
+              <Metric
+                label="Flagged"
+                value={String(ov.n_anomalous)}
+                tone={ov.n_anomalous ? "text-danger" : undefined}
+                hint="activities tripping M3"
+              />
+              <Metric label="Budget" value={money(ov.budget_cap, true)} hint="cap on the action set" />
+            </div>
+          ) : (
+            <Skeleton className="h-[110px]" />
+          )}
+        </Tile>
+
+        {/* Row 3 — the constraint. M2 on the left, M3's timeline on the right. */}
+        <Tile
+          span={5}
+          spanSm={6}
+          title="M2 · bottleneck ranking"
+          meta="0.45 queue-wait + 0.30 utilisation + 0.25 unexplained residual"
+          action={<span className="chip">Top 10 of 24</span>}
+        >
+          {stages.data ? (
+            <RankBars rows={ranked.slice(0, 10)} selected={selected} onSelect={toggle} />
+          ) : (
+            <Skeleton className="h-[300px]" />
+          )}
+        </Tile>
+
+        <Tile
+          span={7}
+          spanSm={6}
+          title="M3 · anomaly timeline"
+          meta={m3?.timeline_stage ? pretty(m3.timeline_stage) : "hourly windows vs the healthy baseline"}
+        >
+          {m3 ? (
+            <div className="flex h-full flex-col">
+              <AnomalyStrip
+                timeline={m3.timeline}
+                injectedAt={m3.injected_at}
+                stageLabel={pretty(m3.timeline_stage)}
+              />
+              <p className="clamp-3 mt-3 border-t border-line/8 pt-3 text-[11.5px] leading-relaxed text-ink-3">
+                {m3.narrative}
               </p>
             </div>
-            {stages.data ? (
-              <RankBars
-                rows={[...stages.data.stages].sort((a, b) => a.rank - b.rank).slice(0, 10)}
-                selected={selected}
-                onSelect={(s) => setSelected(s === selected ? null : s)}
-              />
-            ) : (
-              <Skeleton className="h-[320px]" />
-            )}
-            <p className="mt-3 border-t border-ink/10 pt-3 text-[11.5px] leading-relaxed text-ink-faint">
-              Score = 0.45 × queue-wait share + 0.30 × utilisation + 0.25 × share of
-              delay M1 could not explain.
-            </p>
-          </div>
+          ) : (
+            <Skeleton className="h-[220px]" />
+          )}
+        </Tile>
 
-          <div className="panel flex flex-col p-4">
-            <div className="mb-3 flex items-baseline justify-between gap-2">
-              <p className="eyebrow">M3 · anomaly timeline</p>
-              {m3?.timeline_stage && (
-                <p className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-mid">
-                  {pretty(m3.timeline_stage)}
-                </p>
-              )}
-            </div>
-            {m3 ? (
-              <>
-                <AnomalyStrip
-                  timeline={m3.timeline}
-                  injectedAt={m3.injected_at}
-                  stageLabel={pretty(m3.timeline_stage)}
-                />
-                <p className="mt-3 border-t border-ink/10 pt-3 text-[11.5px] leading-relaxed text-ink-faint">
-                  {m3.narrative}
-                </p>
-              </>
-            ) : (
-              <Skeleton className="h-[220px]" />
-            )}
-          </div>
-        </div>
-      </Section>
+        {/* Row 4 — the detail table, and the bus beside it. */}
+        <Tile
+          span={8}
+          spanSm={6}
+          title="The activity table"
+          meta="sortable on every column · click a row to mark it on the rail above"
+          action={
+            <Segmented
+              size="xs"
+              value={macroFilter}
+              onChange={setMacroFilter}
+              items={[
+                { value: "all", label: "All" },
+                ...(macro.data?.macro_stages ?? []).map((m) => ({
+                  value: m.macro_stage,
+                  label: m.label.split(" ")[0],
+                  title: m.label,
+                })),
+              ]}
+            />
+          }
+        >
+          {stages.data ? (
+            <StageTable
+              stages={stages.data.stages}
+              selected={selected}
+              onSelect={toggle}
+              filter={macroFilter === "all" ? null : macroFilter}
+              maxHeight={380}
+            />
+          ) : (
+            <Skeleton className="h-[380px]" />
+          )}
+        </Tile>
 
-      {/* ---------------------------------------------------- the table ---- */}
-      <Section
-        eyebrow="Act V · The detail"
-        index={5}
-        title="The activity table"
-        lede="Sortable on every column — by rank to find the constraint, by utilisation to find what is running hot, by wait-over-service to find where the queue is out of proportion to the work."
-        className="mt-14"
-        action={
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              onClick={() => setMacroFilter(null)}
-              className={`rounded-full border px-3 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.16em] ${
-                !macroFilter ? "border-ink bg-ink text-paper" : "border-ink/18 text-ink-mid hover:text-ink"
-              }`}
-            >
-              All
-            </button>
-            {(macro.data?.macro_stages ?? []).map((m) => (
-              <button
-                key={m.macro_stage}
-                onClick={() => setMacroFilter(m.macro_stage === macroFilter ? null : m.macro_stage)}
-                className={`rounded-full border px-3 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.16em] ${
-                  macroFilter === m.macro_stage
-                    ? "border-ink bg-ink text-paper"
-                    : "border-ink/18 text-ink-mid hover:text-ink"
+        <Tile
+          span={4}
+          spanSm={6}
+          title="Live event bus"
+          meta={`pub/sub · ${bus?.meta?.backend ?? "memory"} backend`}
+          action={
+            <span className="inline-flex items-center gap-1.5">
+              <LiveDot on={bus?.connected} />
+              <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-3">
+                {bus?.connected ? "Streaming" : "Offline"}
+              </span>
+            </span>
+          }
+          bodyClass="flex flex-col"
+        >
+          {/* Capped to the activity table's height so the two tiles in this
+              row stay the same size and neither can stretch the page. */}
+          <EventFeed
+            events={bus?.events ?? []}
+            connected={bus?.connected}
+            maxHeight={380}
+            emptyLabel="Inject a fault or open the simulation to publish"
+          />
+          <p className="mt-2 shrink-0 border-t border-line/8 pt-2 font-mono text-[9px] uppercase leading-relaxed tracking-[0.14em] text-ink-4">
+            {(bus?.events ?? []).length} events · publishers: sim, M1–M6, agent, apply,
+            analyst
+          </p>
+        </Tile>
+
+        {/* Row 5 — how well any of it works. */}
+        {(metrics.data?.cards ?? []).map((card) => (
+          <Tile key={card.model} span={3} spanSm={3}>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-mono text-[12.5px] font-semibold text-ink">
+                {card.model}
+              </span>
+              <span
+                className={`font-mono text-[9px] uppercase tracking-[0.14em] ${
+                  card.pass ? "text-ok" : "text-warn"
                 }`}
               >
-                {m.label}
-              </button>
-            ))}
-          </div>
-        }
-      >
-        {stages.data ? (
-          <StageTable
-            stages={stages.data.stages}
-            selected={selected}
-            onSelect={(s) => setSelected(s === selected ? null : s)}
-            filter={macroFilter}
-          />
-        ) : (
-          <Skeleton className="h-[500px]" />
-        )}
-      </Section>
-
-      {/* ------------------------------------------------- model scorecards */}
-      <Section
-        eyebrow="Act VI · The evidence"
-        index={6}
-        title="How well any of this works"
-        lede="Scored against the ground-truth table, which no model trains on, across three fault scenarios in three different macro-stages."
-        className="mt-14"
-      >
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {(metrics.data?.cards ?? []).map((card) => (
-            <div key={card.model} className="panel p-4">
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-[13px] font-semibold">{card.model}</span>
-                <span
-                  className={`font-mono text-[9.5px] uppercase tracking-[0.16em] ${
-                    card.pass ? "text-band-green" : "text-band-amber"
-                  }`}
-                >
-                  {card.pass ? "Pass" : "Check"}
-                </span>
-              </div>
-              <p className="mt-2 text-[13.5px] font-medium leading-snug">{card.name}</p>
-              <p className="metric mt-3 text-[19px] font-extrabold tracking-[-0.02em]">
-                {card.display}
-              </p>
-              <p className="mt-2 text-[11px] leading-snug text-ink-faint">{card.detail}</p>
+                {card.pass ? "Pass" : "Check"}
+              </span>
+            </div>
+            <p className="clamp-2 mt-2 text-[13px] font-medium leading-snug text-ink-2">
+              {card.name}
+            </p>
+            <p className="metric mt-3 text-[19px] font-bold tracking-[-0.02em] text-ink">
+              {card.display}
+            </p>
+            <p className="clamp-3 mt-2 text-[10.5px] leading-snug text-ink-4">{card.detail}</p>
+          </Tile>
+        ))}
+        {!metrics.data &&
+          [0, 1, 2, 3].map((i) => (
+            <div key={i} className="col-span-1 sm:col-span-3 lg:col-span-3">
+              <Skeleton className="h-[168px]" />
             </div>
           ))}
-          {!metrics.data && [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[168px]" />)}
-        </div>
-      </Section>
 
-      {/* ------------------------------------------------------- handoff --- */}
-      <section className="mt-16 grid gap-3 sm:grid-cols-2">
+        {/* Row 6 — where to go next. */}
         <Link
           to="/simulation"
-          className="panel group flex flex-col justify-between gap-6 p-6 transition-colors hover:border-ink/30 hover:bg-paper-sink/50"
+          className="card-lift group col-span-1 flex flex-col justify-between gap-6 p-5 sm:col-span-3 lg:col-span-6"
         >
           <div>
             <Eyebrow>Next</Eyebrow>
-            <h3 className="mt-3 text-[22px] font-extrabold uppercase tracking-[-0.03em]">
-              Walk the simulation
-            </h3>
-            <p className="mt-2 max-w-sm text-[13.5px] leading-relaxed text-ink-mid">
-              One case through all 24 activities, then the nine panels — M1, M2, M3, the
-              agent, M4, M5, M6 and the measured outcome — stepped through one at a time.
+            <h3 className="title-md mt-2.5 text-[19px]">Walk the simulation</h3>
+            <p className="lede mt-2 max-w-sm text-[13.5px]">
+              One case through all 24 activities, then nine panels — M1, M2, M3, the
+              agent, M4, M5, M6 and the measured outcome — stepped through one at a time,
+              with the event stream running beside them.
             </p>
           </div>
-          <span className="font-mono text-label uppercase text-ink group-hover:text-red">
+          <span className="font-mono text-label uppercase text-accent">
             Open the panel →
           </span>
         </Link>
 
         <Link
           to="/chat"
-          className="group relative flex flex-col justify-between gap-6 overflow-hidden rounded-xl bg-ink p-6 text-paper transition-transform hover:-translate-y-0.5"
+          className="card-ink group relative col-span-1 flex flex-col justify-between gap-6 overflow-hidden p-5 transition-transform hover:-translate-y-0.5 sm:col-span-3 lg:col-span-6"
         >
-          <div className="grain absolute inset-0 opacity-30" aria-hidden />
           <div className="relative">
-            <p className="eyebrow text-paper/45">Ask instead</p>
-            <h3 className="mt-3 text-[22px] font-extrabold uppercase tracking-[-0.03em]">
+            <p className="eyebrow text-white/45">Ask instead</p>
+            <h3 className="mt-2.5 text-[19px] font-semibold tracking-[-0.02em]">
               The ProcessX analyst
             </h3>
-            <p className="mt-2 max-w-sm text-[13.5px] leading-relaxed text-paper/70">
-              An agent with eighteen tools over this database and every model in the
-              stack. Ask it where the bottleneck is, what a fix would cost, or anything
-              you can express as a query.
+            <p className="mt-2 max-w-sm text-[13.5px] leading-[1.6] text-white/65">
+              An agent with twenty-one tools over this database, every model in the
+              stack, and the event bus itself. Ask where the bottleneck is, what a fix
+              costs, or why the agent chose what it chose.
             </p>
           </div>
-          <span className="relative font-mono text-label uppercase text-paper group-hover:text-red-soft">
+          <span className="relative font-mono text-label uppercase text-white/80 group-hover:text-white">
             Start a conversation →
           </span>
         </Link>
-      </section>
+      </Bento>
+
+      <footer className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-line/8 pt-5">
+        <span className="eyebrow">ProcessX v2</span>
+        <span className="font-mono text-[10px] text-ink-4">
+          Master seed 42 · 7-day horizon · 24 activities · 5 macro-stages
+        </span>
+        <span className="ml-auto font-mono text-[10px] text-ink-4">
+          Every number on this page is reproducible from the same seed.
+        </span>
+      </footer>
     </Shell>
   );
 }
@@ -436,31 +463,22 @@ function Shell({ children }) {
   return (
     <main
       id="main"
-      className="mx-auto max-w-6xl px-4 pb-24"
+      className="mx-auto min-w-0 max-w-[1440px] px-3 pb-16 sm:px-5"
       style={{ paddingTop: "var(--nav-space)" }}
     >
       {children}
-      <footer className="rule-t mt-20 flex flex-wrap items-center gap-x-6 gap-y-2 pt-5">
-        <span className="eyebrow">ProcessX v2</span>
-        <span className="font-mono text-[10px] text-ink-faint">
-          Master seed 42 · 7-day horizon · 24 activities · 5 macro-stages
-        </span>
-        <span className="ml-auto font-mono text-[10px] text-ink-faint">
-          Every number on this page is reproducible from the same seed.
-        </span>
-      </footer>
     </main>
   );
 }
 
 function Fact({ label, value, sub }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="eyebrow">{label}</dt>
-      <dd className="mt-2 text-[15px] font-semibold leading-tight tracking-[-0.02em]">
+      <dd className="mt-1.5 truncate text-[14px] font-semibold leading-tight tracking-[-0.015em] text-ink">
         {value}
       </dd>
-      {sub && <dd className="font-mono text-[10px] text-ink-faint">{sub}</dd>}
+      {sub && <dd className="truncate font-mono text-[9.5px] text-ink-4">{sub}</dd>}
     </div>
   );
 }

@@ -7,17 +7,15 @@ import Logo from "../components/Logo.jsx";
  * One turn.
  *
  * The user's message sits in a bubble on the right; the assistant's is
- * full-width rich text on the left with the mark beside it — the same
- * asymmetry the Namma Agent UI uses, and for the same reason: the reply carries
- * tables, code and headings, and a bubble would either clip them or become a
- * box around the entire page.
+ * full-width rich text on the left with the mark beside it. The asymmetry is
+ * deliberate: the reply carries tables, code and headings, and a bubble around
+ * it would either clip them or become a box around the entire page.
  */
-export default function Message({ role, content, at, steps, meta, running, error }) {
-  if (role === "user") return <UserTurn content={content} at={at} />;
+export default function Message({ role, content, steps, meta, running, error }) {
+  if (role === "user") return <UserTurn content={content} />;
   return (
     <AssistantTurn
       content={content}
-      at={at}
       steps={steps}
       meta={meta}
       running={running}
@@ -28,9 +26,9 @@ export default function Message({ role, content, at, steps, meta, running, error
 
 function UserTurn({ content }) {
   return (
-    <div className="flex justify-end animate-rise">
-      <div className="max-w-[82%] rounded-2xl rounded-br-md border border-ink/14 bg-paper-sink/70 px-4 py-2.5">
-        <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed">{content}</p>
+    <div className="animate-rise flex justify-end">
+      <div className="max-w-[80%] rounded-2xl rounded-br-md bg-ink px-4 py-2.5 text-white shadow-soft">
+        <p className="whitespace-pre-wrap text-[14px] leading-relaxed">{content}</p>
       </div>
     </div>
   );
@@ -50,27 +48,27 @@ function AssistantTurn({ content, steps, meta, running, error }) {
   }
 
   return (
-    <div className="group flex gap-3 animate-rise">
-      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full border border-ink/12 bg-paper">
-        <Logo size={17} />
+    <div className="group animate-rise flex gap-3">
+      <span className="card mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full">
+        <Logo size={16} />
       </span>
 
       <div className="min-w-0 flex-1">
         <Activity steps={steps} running={running} />
 
         {error ? (
-          <div className="rounded-lg border border-red/30 bg-red/[0.06] px-3.5 py-3">
-            <p className="eyebrow text-red">The turn failed</p>
-            <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-mid">{error}</p>
+          <div className="rounded-xl border border-danger/25 bg-danger/[0.05] px-3.5 py-3">
+            <p className="eyebrow text-danger">The turn failed</p>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">{error}</p>
           </div>
         ) : content ? (
           <Markdown>{content}</Markdown>
         ) : (
-          <span className="inline-block h-4 w-[7px] animate-blink rounded-sm bg-ink-faint align-middle" />
+          <span className="inline-block h-4 w-[7px] animate-blink rounded-sm bg-ink-4 align-middle" />
         )}
 
         {content && !running && (
-          <div className="mt-2.5 flex items-center gap-3 font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-faint">
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-4">
             <button
               onClick={copy}
               className="opacity-0 transition-opacity hover:text-ink focus:opacity-100 group-hover:opacity-100"
@@ -85,6 +83,7 @@ function AssistantTurn({ content, steps, meta, running, error }) {
                 {meta.tools_used.length} tool{meta.tools_used.length === 1 ? "" : "s"}
               </span>
             )}
+            {meta?.model && <span className="truncate normal-case">{meta.model}</span>}
           </div>
         )}
       </div>

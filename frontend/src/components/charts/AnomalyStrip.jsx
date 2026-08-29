@@ -44,7 +44,7 @@ export default function AnomalyStrip({ timeline, injectedAt, stageLabel }) {
 
   if (!points.length) {
     return (
-      <div className="grid h-[150px] place-items-center text-[12.5px] text-ink-faint">
+      <div className="grid h-full min-h-[110px] place-items-center text-[12px] text-ink-4">
         No windows to plot.
       </div>
     );
@@ -53,10 +53,11 @@ export default function AnomalyStrip({ timeline, injectedAt, stageLabel }) {
   const flagged = points.filter((p) => p.anomaly);
 
   return (
-    <div className="relative">
+    <div className="relative flex h-full min-h-0 flex-col">
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="w-full"
+        preserveAspectRatio="xMidYMid meet"
+        className="min-h-0 w-full flex-1"
         role="img"
         aria-label={`Mean queue wait per hour at ${stageLabel}, with anomalous windows marked`}
         onMouseLeave={() => setHover(null)}
@@ -182,7 +183,7 @@ export default function AnomalyStrip({ timeline, injectedAt, stageLabel }) {
         </text>
       </svg>
 
-      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-faint">
+      <div className="mt-1 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[9px] uppercase tracking-[0.14em] text-ink-4">
         <span className="flex items-center gap-1.5">
           <span className="h-[2px] w-4 bg-red" /> mean queue wait (h)
         </span>

@@ -40,7 +40,7 @@ export default function RankBars({
               disabled={!onSelect}
               className={`group relative w-full text-left rounded-md px-2 py-1.5 transition-colors
                           ${onSelect ? "cursor-pointer" : "cursor-default"}
-                          ${isSelected ? "bg-ink/6" : "hover:bg-ink/4"}`}
+                          ${isSelected ? "bg-accent-wash" : "hover:bg-surface-3"}`}
               style={{ animationDelay: `${i * 26}ms` }}
             >
               <div className="flex items-baseline gap-2">
@@ -66,9 +66,9 @@ export default function RankBars({
                   {format(value)}
                 </span>
               </div>
-              <div className="mt-1.5 ml-7 h-[7px] rounded-sm bg-ink/7 overflow-hidden">
+              <div className="mt-1.5 ml-7 h-[6px] rounded-full bg-line/8 overflow-hidden">
                 <div
-                  className="h-full rounded-sm origin-left animate-sweep transition-opacity"
+                  className="h-full rounded-full origin-left animate-sweep transition-opacity"
                   style={{
                     width: `${width}%`,
                     background: MACRO_COLOR[r.macro_stage] ?? "rgb(var(--ink))",

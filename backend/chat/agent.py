@@ -18,8 +18,9 @@ import uuid
 from collections import OrderedDict
 
 from backend.chat import prompt as prompt_mod
-from backend.chat.provider import GroqProvider, ProviderError
+from backend.chat.provider import OpenCodeProvider, ProviderError
 from backend.chat.toolkit import build_registry
+from backend.events import publishers as pub
 
 # Tool rounds per turn. Three is enough for the deepest legitimate chain
 # (schema -> query -> a second query to check something); past that the model is
@@ -72,7 +73,7 @@ class ChatAgent:
     def __init__(self, state, model=None):
         self.state = state
         self.registry = build_registry(state)
-        self.provider = GroqProvider(model=model)
+        self.provider = OpenCodeProvider(model=model)
 
     def tool_detail(self):
         return self.registry.detail()
@@ -105,6 +106,12 @@ class ChatAgent:
         started = time.time()
         yield "session", {"session_id": session_id}
 
+        try:
+            bus_run_id = self.state.current_run_id()
+        except Exception:
+            bus_run_id = None
+        pub.chat_turn_started(session_id, bus_run_id, user_input)
+
         messages = self._messages(session, user_input)
         tool_defs = self.registry.definitions()
         steps, answer, first_token = [], "", None
@@ -134,7 +141,7 @@ class ChatAgent:
                         # to show. Say so rather than closing an empty bubble.
                         raise ProviderError(
                             "The model returned an empty response. Try rephrasing, or "
-                            "check that GROQ_MODEL is a tool-calling model.")
+                            "set OPENCODE_MODEL to a model that supports tool calling.")
                     answer = text
                     break
 
@@ -163,6 +170,8 @@ class ChatAgent:
                         "output": result.as_message_content()[:1200],
                     }
                     steps.append(step)
+                    pub.chat_tool_called(session_id, bus_run_id, call.name,
+                                         result.ok, elapsed, _short(call.args))
                     yield "tool_finished", {**step}
                     messages.append({"role": "tool", "tool_call_id": call.id,
                                      "name": call.name,
@@ -178,8 +187,10 @@ class ChatAgent:
 
         now = time.time()
         meta = {"elapsed": now - started, "ttft": first_token,
+                "model": self.provider.active_model(),
                 "tools_used": [s["tool"] for s in steps if s["type"] == "tool"]}
         session["history"].append({"role": "user", "content": user_input, "at": started})
         session["history"].append({"role": "assistant", "content": answer, "at": now,
                                    "steps": steps, "meta": meta})
+        pub.chat_turn_completed(session_id, bus_run_id, meta, answer)
         yield "turn_completed", {"content": answer, "steps": steps, "meta": meta}
